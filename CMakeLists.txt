@@ -54,6 +54,9 @@ add_library(lulz_core
     # PE
     src/formats/pe/PEParser.cpp
 
+    # ELF
+    src/formats/elf/ELFParser.cpp
+
     # Mach-O
     src/formats/macho/MachOParser.cpp
     src/formats/pe/UnwindInfo.cpp
