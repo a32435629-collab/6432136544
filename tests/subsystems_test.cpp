@@ -4,9 +4,11 @@
 #include "debugger/DebugModel.hpp"
 #include "decompiler/IR.hpp"
 #include "diff/BinaryDiff.hpp"
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 int main() {

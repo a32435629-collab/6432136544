@@ -1,9 +1,10 @@
 #pragma once
-#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace lulz::debugger {
@@ -26,7 +27,8 @@ public:
     bool pause() { if(state_!=ProcessState::Running) return false; state_=ProcessState::Paused; return true; }
     bool markExited() { if(state_==ProcessState::Detached) return false; state_=ProcessState::Exited; return true; }
     bool addBreakpoint(Breakpoint bp) {
-        if(bp.address==0) return false; return breakpoints_.insert_or_assign(bp.address,std::move(bp)).second;
+        if(bp.address==0 || breakpoints_.contains(bp.address)) return false;
+        breakpoints_.emplace(bp.address,std::move(bp)); return true;
     }
     bool removeBreakpoint(std::uint64_t address) { return breakpoints_.erase(address)!=0; }
     std::optional<Breakpoint> breakpointAt(std::uint64_t address) const {
