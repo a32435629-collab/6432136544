@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 namespace lulz::plugins {
 struct Manifest{std::string id,name,version,description;};
