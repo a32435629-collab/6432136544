@@ -60,18 +60,18 @@ record their SHA-256 with a trusted hashing utility.
 
 ## Function Analysis Engine (v0.5)
 
-The x64 PE analyzer combines `.pdata` `RUNTIME_FUNCTION` ranges with parsed `UNWIND_INFO`, saved GPR/XMM registers, stack-frame sizes, and bounded `CHAININFO` traversal. It also parses PE imports and builds a best-effort call graph from direct relative CALL/JMP patterns and RIP-relative IAT forms (`FF 15` / `FF 25`).
+The x64 PE analyzer combines `.pdata` `RUNTIME_FUNCTION` ranges with parsed `UNWIND_INFO`, saved GPR/XMM registers, stack-frame sizes, and bounded `CHAININFO` traversal. It also parses PE imports and builds a call graph from x64 instructions decoded by Zydis, including relative CALL/JMP and RIP-relative IAT forms.
 
 ```powershell
 .\build\Release\dll_lulz.exe analyze "C:\Windows\System32\notepad.exe"
 .\build\Release\dll_lulz.exe analyze "C:\Windows\System32\notepad.exe" --json report.json
 ```
 
-Call-site discovery is currently heuristic: matching byte patterns are not proof of instruction boundaries. Indirect calls outside the supported RIP-relative IAT encodings remain unresolved. The module currently targets x64 PE32+ images with `.pdata`; other architectures and complete instruction decoding are future work.
+Call-site discovery uses Zydis instruction boundaries, avoiding opcode-like bytes inside immediates and displacements. Indirect targets outside supported RIP-relative IAT slots remain unresolved. The module currently targets x64 PE32+ images with `.pdata`; other architectures and complete instruction decoding are future work.
 
 
 ## Validation status
 
-The x64 PE call-site scan is heuristic and must not be treated as a complete disassembly or authoritative control-flow graph. AI feature extraction counts instruction-derived metrics only for functions explicitly marked as decoded; metadata summaries are not instructions. The current AI engine is a rules/statistics scaffold and does not run a trained neural model.
+The x64 PE call-site scan uses Zydis decoding but remains a best-effort control-flow graph: indirect targets and exceptional control-flow edges may remain unresolved. AI feature extraction counts instruction-derived metrics only for functions explicitly marked as decoded; metadata summaries are not instructions. The current AI engine is a rules/statistics scaffold and does not run a trained neural model.
 
 Release test builds explicitly keep assertions enabled. The repository CI workflow builds and runs tests on Windows and Ubuntu.
