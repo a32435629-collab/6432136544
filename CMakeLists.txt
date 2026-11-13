@@ -78,6 +78,9 @@ add_library(lulz_core
     src/ai/features/ImportFeatures.cpp
     src/ai/features/FunctionFeatures.cpp
     src/ai/features/InstructionFeatures.cpp
+
+    # Neural network
+    src/ai/neural/NeuralNetwork.cpp
 )
 
 # ==========================================
@@ -156,6 +159,12 @@ if(DLL_LULZ_BUILD_TESTS)
         COMMAND lulz_tests
     )
 
+    add_executable(lulz_neural_tests
+        tests/neural_test.cpp
+    )
+    target_link_libraries(lulz_neural_tests PRIVATE lulz_core)
+    add_test(NAME lulz_neural_tests COMMAND lulz_neural_tests)
+
 endif()
 
 # ==========================================
@@ -167,6 +176,7 @@ message(STATUS " DLL_LULZ_AI ${PROJECT_VERSION}")
 message(STATUS " AI Core: 0.1.0")
 message(STATUS " AI Analysis: 0.1.0")
 message(STATUS " AI Features: 0.1.0")
+message(STATUS " AI Neural: 0.1.0")
 message(STATUS " C++ Standard: 20")
 message(STATUS " Unit Tests: ${DLL_LULZ_BUILD_TESTS}")
 message(STATUS "================================")
