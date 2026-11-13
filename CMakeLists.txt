@@ -57,6 +57,9 @@ add_library(lulz_core
     # ELF
     src/formats/elf/ELFParser.cpp
 
+    # .NET / CLR
+    src/formats/dotnet/DotNetParser.cpp
+
     # Mach-O
     src/formats/macho/MachOParser.cpp
     src/formats/pe/UnwindInfo.cpp
