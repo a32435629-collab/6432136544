@@ -9,6 +9,23 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(DLL_LULZ_BUILD_TESTS "Build unit tests" ON)
 
+# Full x86/x64 instruction decoding for control-flow analysis.
+include(FetchContent)
+set(ZYDIS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_DOXYGEN OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_MAN OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    zydis
+    GIT_REPOSITORY https://github.com/zyantific/zydis.git
+    GIT_TAG v4.1.1
+    GIT_SHALLOW TRUE
+    GIT_SUBMODULES_RECURSE TRUE
+)
+FetchContent_MakeAvailable(zydis)
+
 # ==========================================
 # Core library
 # ==========================================
@@ -72,6 +89,7 @@ target_include_directories(lulz_core
 )
 
 target_compile_features(lulz_core PUBLIC cxx_std_20)
+target_link_libraries(lulz_core PRIVATE Zydis)
 
 # ==========================================
 # Compiler options
