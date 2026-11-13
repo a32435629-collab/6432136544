@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <istream>
 #include <utility>
 
 namespace lulz::ai::training {
