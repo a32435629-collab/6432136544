@@ -116,7 +116,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
                         targetVa >= pe.imageBase &&
                         targetVa - pe.imageBase <= 0xffffffffull) {
                         call.targetRva = static_cast<std::uint32_t>(targetVa - pe.imageBase);
-                        call.kind = isCall ? "call_rel32" : (targetOperand.imm.size == 8 ? "jmp_rel8" : "jmp_rel32");
+                        call.kind = isCall ? "call_rel32" : (instruction.raw.imm[0].size == 8 ? "jmp_rel8" : "jmp_rel32");
                         call.target = hex32(call.targetRva);
                         call.resolved = true;
                         fn.calls.push_back(std::move(call));
