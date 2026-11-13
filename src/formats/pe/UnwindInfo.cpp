@@ -601,11 +601,6 @@ Result<UnwindInfo> parsePEUnwindInfo(
                 "chained RUNTIME_FUNCTION has null UNWIND_INFO RVA"
             );
         }
-        if (out.chainedFunction.endRva > 0x100000000ull) {
-            return Result<UnwindInfo>::failure(
-                "chained RUNTIME_FUNCTION range overflows RVA space"
-            );
-        }
     } else if ((out.flags & 0x03) != 0) {
         const auto tailRva = std::uint64_t(function.unwindInfoRva) +
             4 + alignedCodesSize;
