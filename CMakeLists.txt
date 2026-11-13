@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(DLL_LULZ_BUILD_TESTS "Build unit tests" ON)
+option(DLL_LULZ_BUILD_BENCHMARKS "Build opt-in microbenchmarks" OFF)
 
 # Full x86/x64 instruction decoding for control-flow analysis.
 include(FetchContent)
@@ -93,6 +94,11 @@ if(DLL_LULZ_BUILD_TESTS)
         target_compile_options(lulz_subsystem_tests PRIVATE -UNDEBUG)
     endif()
     add_test(NAME lulz_subsystem_tests COMMAND lulz_subsystem_tests)
+endif()
+
+if(DLL_LULZ_BUILD_BENCHMARKS)
+    add_executable(lulz_neural_benchmark benchmarks/neural_benchmark.cpp)
+    target_link_libraries(lulz_neural_benchmark PRIVATE lulz_core)
 endif()
 
 message(STATUS "================================")

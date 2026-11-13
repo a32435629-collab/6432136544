@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/dll-lulz-ai/config.schema.json",
+  "title": "DLL LULZ AI configuration preset",
+  "description": "Static preset matching the current lulz::ai::AIConfig fields. JSON loading is not implemented yet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["enabled", "provider", "modelName", "endpoint", "maxFunctions", "maxImports", "maxInstructions"],
+  "properties": {
+    "enabled": { "type": "boolean", "default": true },
+    "provider": { "type": "string", "enum": ["none", "local", "openai"], "default": "none" },
+    "modelName": { "type": "string", "minLength": 1, "default": "none" },
+    "endpoint": { "type": "string", "default": "" },
+    "maxFunctions": { "type": "integer", "minimum": 1, "maximum": 100000, "default": 1000 },
+    "maxImports": { "type": "integer", "minimum": 1, "maximum": 500000, "default": 5000 },
+    "maxInstructions": { "type": "integer", "minimum": 1, "maximum": 10000000, "default": 50000 }
+  }
+}

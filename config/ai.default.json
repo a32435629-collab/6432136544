@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "provider": "none",
+  "modelName": "none",
+  "endpoint": "",
+  "maxFunctions": 1000,
+  "maxImports": 5000,
+  "maxInstructions": 50000
+}
