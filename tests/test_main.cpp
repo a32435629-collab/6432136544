@@ -105,5 +105,20 @@ int main() {
     w32(0x404,0xffffffff);
     assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
     assert(!lulz::parsePEUnwindInfo(std::span<const std::uint8_t>(pe.data(),0x402),parsed.value(),runtime.value()[0]));
+
+    // Reject volatile GPRs in operations that must save nonvolatile registers.
+    pe[0x400]=0x01; pe[0x401]=4; pe[0x402]=1; pe[0x403]=0;
+    pe[0x404]=4; pe[0x405]=0x10; // UWOP_PUSH_NONVOL RAX (invalid)
+    assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
+
+    // XMM save operations may only name the nonvolatile XMM6-XMM15 range.
+    pe[0x402]=2; pe[0x404]=4; pe[0x405]=0x08; // UWOP_SAVE_XMM128 XMM0
+    pe[0x406]=0; pe[0x407]=0;
+    assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
+
+    // Frame register must be a nonvolatile GPR; RAX is not valid.
+    pe[0x400]=0x01; pe[0x401]=4; pe[0x402]=0; pe[0x403]=1;
+    assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
+
     std::cout<<"All foundation tests passed\n";
 }
