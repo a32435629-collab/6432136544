@@ -53,6 +53,9 @@ add_library(lulz_core
 
     # PE
     src/formats/pe/PEParser.cpp
+
+    # Mach-O
+    src/formats/macho/MachOParser.cpp
     src/formats/pe/UnwindInfo.cpp
 
     # Analysis
