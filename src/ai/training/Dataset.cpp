@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <cstdlib>
-#include <string_view>
 #include <utility>
 
 namespace lulz::ai::training {
@@ -109,11 +108,9 @@ std::optional<Dataset> Dataset::loadCsv(std::istream& input,
     Dataset dataset;
     std::string line;
     std::vector<std::string> fields;
-    std::size_t lineNumber = 0;
     bool headerPending = hasHeader;
 
     while (std::getline(input, line)) {
-        ++lineNumber;
         if (trim(line).empty()) continue;
         if (!parseRow(line, delimiter, fields)) {
             setError(error, "Malformed quoted CSV row");
