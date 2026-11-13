@@ -1,4 +1,4 @@
-# DLL LULZ AI v0.4.0
+# DLL LULZ AI v0.5.0
 
 A modular C++20 reverse-engineering and binary-analysis workbench.
 
@@ -68,3 +68,10 @@ The x64 PE analyzer combines `.pdata` `RUNTIME_FUNCTION` ranges with parsed `UNW
 ```
 
 Call-site discovery is currently heuristic: matching byte patterns are not proof of instruction boundaries. Indirect calls outside the supported RIP-relative IAT encodings remain unresolved. The module currently targets x64 PE32+ images with `.pdata`; other architectures and complete instruction decoding are future work.
+
+
+## Validation status
+
+The x64 PE call-site scan is heuristic and must not be treated as a complete disassembly or authoritative control-flow graph. AI feature extraction counts instruction-derived metrics only for functions explicitly marked as decoded; metadata summaries are not instructions. The current AI engine is a rules/statistics scaffold and does not run a trained neural model.
+
+Release test builds explicitly keep assertions enabled. The repository CI workflow builds and runs tests on Windows and Ubuntu.
