@@ -56,7 +56,13 @@ int main() {
     auto fa=lulz::analyzePEFunctions(pe,parsed.value());
     assert(fa && fa.value().functions.size()==1);
     assert(!fa.value().functions[0].calls.empty());
-    assert(fa.value().functions[0].calls[0].kind=="call_rel32");
+    assert(fa.value().functions[0].calls[0].kind=="call_rel");
+    assert(fa.value().functions[0].calls.size()==1);
+    // An E8 byte inside a MOV immediate is data, not a second CALL instruction.
+    pe[0x310]=0x48; pe[0x311]=0xb8; pe[0x312]=0xe8; pe[0x313]=0x11;
+    pe[0x314]=0; pe[0x315]=0; pe[0x316]=0; pe[0x317]=0; pe[0x318]=0; pe[0x319]=0;
+    auto decodedAgain=lulz::analyzePEFunctions(pe,parsed.value());
+    assert(decodedAgain && decodedAgain.value().functions[0].calls.size()==1);
     assert(fa.value().functions[0].calls[0].resolved);
     const auto json=lulz::functionAnalysisToJson(fa.value(),parsed.value());
     assert(json.find("call_graph")!=std::string::npos);
