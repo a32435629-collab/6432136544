@@ -1,0 +1,4 @@
+#include <string>
+#include <sstream>
+#include <vector>
+namespace lulz::reporting {struct Finding{std::string severity,title,detail;};struct Report{std::string target,format;std::vector<Finding> findings;};static std::string esc(const std::string&s){std::string o;for(char c:s){if(c=='"'||c=='\\')o+='\\';if(c=='\n'){o+="\\n";continue;}if(c!='\r')o+=c;}return o;}std::string toJson(const Report&r){std::ostringstream o;o<<"{\"target\":\""<<esc(r.target)<<"\",\"format\":\""<<esc(r.format)<<"\",\"findings\":[";for(std::size_t i=0;i<r.findings.size();++i){auto&f=r.findings[i];if(i)o<<',';o<<"{\"severity\":\""<<esc(f.severity)<<"\",\"title\":\""<<esc(f.title)<<"\",\"detail\":\""<<esc(f.detail)<<"\"}";}return o<<"]}",o.str();} }

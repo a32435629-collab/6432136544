@@ -79,6 +79,24 @@ add_library(lulz_core
     src/ai/features/FunctionFeatures.cpp
     src/ai/features/InstructionFeatures.cpp
 
+    # Extended source subsystems
+    src/compression/Compression.cpp
+    src/crypto_analysis/CryptoAnalysis.cpp
+    src/database/ArtifactStore.cpp
+    src/debugger/BreakpointTable.cpp
+    src/decompiler/PseudoListing.cpp
+    src/diff/ByteDiff.cpp
+    src/memory/MemoryMap.cpp
+    src/network/Endpoint.cpp
+    src/plugins/PluginRegistry.cpp
+    src/reporting/Report.cpp
+    src/reverse_engineering/Artifacts.cpp
+    src/scripting/CommandParser.cpp
+    src/ui/CommandPalette.cpp
+    src/formats/dotnet/ClrHeader.cpp
+    src/formats/elf/ElfHeader.cpp
+    src/formats/macho/MachOHeader.cpp
+
     # Neural network
     src/ai/neural/NeuralNetwork.cpp
 )

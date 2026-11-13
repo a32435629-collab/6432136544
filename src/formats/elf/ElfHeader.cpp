@@ -1,0 +1,5 @@
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+namespace lulz::formats::elf {struct Header{bool is64,little;std::uint16_t type,machine,phnum,shnum;std::uint64_t entry,phoff,shoff;};static std::uint64_t rd(std::span<const std::uint8_t>b,std::size_t o,unsigned n,bool le){std::uint64_t v=0;for(unsigned i=0;i<n;++i)v|=std::uint64_t(b[o+i])<<(8*(le?i:n-1-i));return v;}std::optional<Header> parse(std::span<const std::uint8_t>b){if(b.size()<16||b[0]!=127||b[1]!='E'||b[2]!='L'||b[3]!='F'||(b[4]!=1&&b[4]!=2)||(b[5]!=1&&b[5]!=2)||b[6]!=1)return {};bool x=b[4]==2,le=b[5]==1;std::size_t z=x?64:52;if(b.size()<z)return {};auto p=x?54u:42u;return Header{x,le,std::uint16_t(rd(b,16,2,le)),std::uint16_t(rd(b,18,2,le)),std::uint16_t(rd(b,p+2,2,le)),std::uint16_t(rd(b,p+6,2,le)),rd(b,24,x?8:4,le),rd(b,x?32:28,x?8:4,le),rd(b,x?40:32,x?8:4,le)};} }
