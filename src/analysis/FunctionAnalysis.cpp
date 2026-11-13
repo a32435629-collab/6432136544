@@ -154,7 +154,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
 }
 
 std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
-    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"heuristic byte-pattern scan\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect targets other than RIP-relative IAT slots may remain unresolved.\", \"Indirect calls are resolved only for RIP-relative IAT forms FF 15/FF 25.\"],\n  \"imports\": [";
+    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect targets other than RIP-relative IAT slots may remain unresolved.\", \"Indirect calls are resolved only for RIP-relative IAT forms FF 15/FF 25.\"],\n  \"imports\": [";
     for(std::size_t i=0;i<a.imports.size();++i){const auto& im=a.imports[i];if(i)o<<",";o<<"\n    {\"module\": \""<<escapeJson(im.module)<<"\", \"name\": \""<<escapeJson(im.name)<<"\", \"iat_rva\": \""<<hex32(im.iatRva)<<"\"}";}
     if(!a.imports.empty()) o<<"\n  ";
     o<<"],\n  \"functions\": [";
