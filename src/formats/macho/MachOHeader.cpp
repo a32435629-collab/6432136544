@@ -1,0 +1,5 @@
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+namespace lulz::formats::macho {struct Header{bool is64,little;std::uint32_t cpu,subtype,fileType,ncmds,commandBytes,flags;};static std::uint32_t rd(std::span<const std::uint8_t>b,std::size_t o,bool le){std::uint32_t v=0;for(unsigned i=0;i<4;++i)v|=std::uint32_t(b[o+i])<<(8*(le?i:3-i));return v;}std::optional<Header> parse(std::span<const std::uint8_t>b){if(b.size()<28)return {};auto m=std::uint32_t(b[0])|(std::uint32_t(b[1])<<8)|(std::uint32_t(b[2])<<16)|(std::uint32_t(b[3])<<24);bool x,le;if(m==0xfeedface){x=false;le=true;}else if(m==0xcefaedfe){x=false;le=false;}else if(m==0xfeedfacf){x=true;le=true;}else if(m==0xcffaedfe){x=true;le=false;}else return {};auto h=x?32u:28u;if(b.size()<h)return {};Header r{x,le,rd(b,4,le),rd(b,8,le),rd(b,12,le),rd(b,16,le),rd(b,20,le),rd(b,24,le)};if(r.commandBytes>b.size()-h)return {};return r;} }

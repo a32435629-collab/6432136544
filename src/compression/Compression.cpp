@@ -1,0 +1,3 @@
+#include <cstdint>
+#include <span>
+namespace lulz::compression { enum class Format{Unknown,Gzip,Zip,SevenZip,Zstd,Xz,Rar}; Format detect(std::span<const std::uint8_t>b) noexcept {if(b.size()>=2&&b[0]==31&&b[1]==139)return Format::Gzip;if(b.size()>=4&&b[0]=='P'&&b[1]=='K'&&b[2]==3&&b[3]==4)return Format::Zip;if(b.size()>=6&&b[0]==0x37&&b[1]==0x7a&&b[2]==0xbc&&b[3]==0xaf&&b[4]==0x27&&b[5]==0x1c)return Format::SevenZip;if(b.size()>=4&&b[0]==0x28&&b[1]==0xb5&&b[2]==0x2f&&b[3]==0xfd)return Format::Zstd;if(b.size()>=6&&b[0]==0xfd&&b[1]==0x37&&b[2]==0x7a&&b[3]==0x58&&b[4]==0x5a&&b[5]==0)return Format::Xz;if(b.size()>=7&&b[0]=='R'&&b[1]=='a'&&b[2]=='r'&&b[3]=='!'&&b[4]==0x1a&&b[5]==7)return Format::Rar;return Format::Unknown;} }

@@ -1,0 +1,3 @@
+#include <string>
+#include <vector>
+namespace lulz::scripting {struct ParsedCommand{std::vector<std::string> args;std::string error;};ParsedCommand parse(const std::string&s){ParsedCommand r;std::string t;char q=0;bool esc=false,active=false;for(char c:s){if(esc){t+=c;esc=false;active=true;continue;}if(c=='\\'){esc=true;active=true;continue;}if(q){if(c==q)q=0;else t+=c;active=true;continue;}if(c=='"'||c=='\''){q=c;active=true;continue;}if(c==' '||c=='\t'){if(active){r.args.push_back(t);t.clear();active=false;}continue;}t+=c;active=true;}if(esc)r.error="trailing escape";else if(q)r.error="unterminated quote";else if(active)r.args.push_back(t);return r;} }
