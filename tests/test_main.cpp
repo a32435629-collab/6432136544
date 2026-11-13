@@ -77,10 +77,10 @@ int main() {
     assert(save.value().operations[0].value==16 && save.value().savedRegisters[0]=="RBX");
 
     // SAVE_XMM128 uses 16-byte scaling and is reported separately from GPR saves.
-    pe[0x402]=2; pe[0x404]=4; pe[0x405]=0x08; pe[0x406]=2; pe[0x407]=0;
+    pe[0x402]=2; pe[0x404]=4; pe[0x405]=0x68; pe[0x406]=2; pe[0x407]=0;
     auto xmm=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
     assert(xmm && xmm.value().savedXmmRegisters.size()==1);
-    assert(xmm.value().savedXmmRegisters[0]=="XMM0");
+    assert(xmm.value().savedXmmRegisters[0]=="XMM6");
     assert(xmm.value().operations[0].value==32);
 
     // ALLOC_LARGE OpInfo=0: the next slot is scaled by eight.
