@@ -1,0 +1,31 @@
+sample_id,architecture,instructions,label,rationale
+as001,x86_64,"push rbp; mov rbp, rsp; sub rsp, 0x20; mov eax, 1; add eax, 2; leave; ret",benign_like,Simple stack frame and arithmetic
+as002,x86_64,"mov eax, ecx; imul eax, edx; add eax, 4; ret",benign_like,Integer arithmetic
+as003,x86_64,"cmp ecx, 0; je 0x20; xor eax, eax; ret",benign_like,Conditional branch and return
+as004,x86,"push ebp; mov ebp, esp; mov eax, [ebp+8]; add eax, 1; pop ebp; ret",benign_like,Conventional x86 function
+as005,x86_64,"lea rax, [rip+0x120]; mov rcx, rax; call rax; ret",suspicious_like,Indirect call merits contextual review
+as006,x86_64,"mov rcx, 0x1234; call qword ptr [rip+0x80]; test eax, eax; jne 0x40",suspicious_like,Indirect API call pattern
+as007,x86_64,"mov rax, gs:[0x60]; mov rax, [rax+0x18]; ret",suspicious_like,Process-environment structure access can be legitimate
+as008,x86_64,"mov ecx, 0x40; call VirtualProtect; test eax, eax; ret",suspicious_like,Executable-memory permission change pattern
+as009,x86_64,"mov edx, 0x1000; call VirtualAlloc; test rax, rax; je 0x50",suspicious_like,Dynamic memory allocation pattern
+as010,x86_64,"push rbx; mov rbx, rcx; call GetProcAddress; test rax, rax; pop rbx; ret",suspicious_like,Dynamic symbol lookup pattern
+as011,x86_64,"xor eax, eax; test ecx, ecx; setne al; ret",benign_like,Boolean result construction
+as012,x86,"mov eax, [esp+4]; cmp eax, 10; ja 0x30; ret",benign_like,Argument bounds check
+as013,x86_64,"sub rsp, 0x28; mov rcx, rbx; call printf; add rsp, 0x28; ret",benign_like,Ordinary library call
+as014,x86_64,"mov rcx, -1; call OpenProcess; test rax, rax; ret",suspicious_like,Process handle acquisition pattern
+as015,x86_64,"mov rcx, rbx; call WriteProcessMemory; test eax, eax; ret",suspicious_like,Remote process memory write pattern
+as016,x86_64,"mov eax, 5; shl eax, 2; or eax, 1; ret",benign_like,Bitwise arithmetic
+as017,x86_64,"call qword ptr [rax+0x10]; add rsp, 0x20; ret",suspicious_like,Register-based indirect control transfer
+as018,x86,"push esi; mov esi, [esp+8]; test esi, esi; jz 0x18; pop esi; ret",benign_like,Null check and conditional return
+as019,x86_64,"mov rax, [rcx]; cmp rax, rdx; jne 0x28; ret",benign_like,Pointer comparison
+as020,x86_64,"mov ecx, 0x1000; call VirtualProtect; mov rax, [rbx]; jmp rax",suspicious_like,Permission change followed by indirect jump
+as021,x86_64,"push r12; push r13; sub rsp, 0x30; xor r12d, r12d; add rsp, 0x30; pop r13; pop r12; ret",benign_like,Register preservation and stack frame
+as022,x86,"mov eax, [esi]; add eax, [edi]; mov [ebx], eax; ret",benign_like,Memory arithmetic
+as023,x86_64,"mov rcx, rax; call CreateProcessW; test eax, eax; ret",suspicious_like,Process creation API pattern
+as024,x86_64,"mov ecx, 0x100; call BCryptEncrypt; test eax, eax; ret",benign_like,Cryptographic API use is common in legitimate software
+as025,x86_64,"cmp byte ptr [rcx], 0; jne 0x18; xor eax, eax; ret",benign_like,Byte check and conditional branch
+as026,x86_64,"mov rax, [rip+0x200]; call rax; test eax, eax; js 0x30",suspicious_like,Indirect call and status branch
+as027,x86,"push ebx; mov ebx, eax; and ebx, 0xff; pop ebx; ret",benign_like,Masking operation
+as028,x86_64,"mov rdx, 0x100; call InternetOpenW; test rax, rax; ret",benign_like,Network API can be used by ordinary applications
+as029,x86_64,"mov rcx, rbx; call LoadLibraryW; test rax, rax; ret",benign_like,Dynamic library loading is common
+as030,x86_64,"mov rcx, rbx; call GetProcAddress; mov rdx, rax; call rdx; ret",suspicious_like,Dynamic resolution and indirect invocation

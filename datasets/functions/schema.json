@@ -1,0 +1,40 @@
+{
+  "dataset": "lulz.function_features",
+  "version": 1,
+  "format": "csv",
+  "file": "function_features.csv",
+  "provenance": "synthetic_hand_authored",
+  "sample_unit": "function_or_binary_observation",
+  "target": {
+    "column": "label",
+    "classes": ["benign_like", "suspicious_like"],
+    "meaning": "Illustrative heuristic category only; not a malware verdict"
+  },
+  "columns": [
+    {"name":"sample_id","type":"string"},
+    {"name":"binary.format","type":"categorical"},
+    {"name":"binary.architecture","type":"categorical"},
+    {"name":"imports.total","type":"number","non_negative":true},
+    {"name":"functions.total","type":"number","non_negative":true},
+    {"name":"imports.dll_loading","type":"number","non_negative":true},
+    {"name":"imports.memory_operations","type":"number","non_negative":true},
+    {"name":"imports.network","type":"number","non_negative":true},
+    {"name":"imports.process","type":"number","non_negative":true},
+    {"name":"imports.crypto","type":"number","non_negative":true},
+    {"name":"functions.average_size","type":"number","non_negative":true},
+    {"name":"functions.max_size","type":"number","non_negative":true},
+    {"name":"functions.with_no_decoded_instructions","type":"number","non_negative":true},
+    {"name":"instructions.decoded_functions","type":"number","non_negative":true},
+    {"name":"instructions.total","type":"number","non_negative":true},
+    {"name":"instructions.calls","type":"number","non_negative":true},
+    {"name":"instructions.jumps","type":"number","non_negative":true},
+    {"name":"instructions.stack_operations","type":"number","non_negative":true},
+    {"name":"instructions.returns","type":"number","non_negative":true},
+    {"name":"label","type":"categorical"}
+  ],
+  "preprocessing": {
+    "numeric": "Fit scaling parameters on the training split only.",
+    "categorical": "Use a persisted, versioned vocabulary; reserve an unknown category.",
+    "split": "When real data is added, split by source binary before deriving function rows."
+  }
+}

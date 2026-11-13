@@ -1,0 +1,17 @@
+sample_id,binary.format,binary.architecture,imports.total,functions.total,imports.dll_loading,imports.memory_operations,imports.network,imports.process,imports.crypto,functions.average_size,functions.max_size,functions.with_no_decoded_instructions,instructions.decoded_functions,instructions.total,instructions.calls,instructions.jumps,instructions.stack_operations,instructions.returns,label
+fn001,PE,x64,18,42,0,0,0,0,1,24,81,0,40,960,38,72,190,40,benign_like
+fn002,PE,x64,35,88,1,1,0,0,2,31,144,1,84,2604,112,188,510,84,benign_like
+fn003,PE,x64,62,156,2,3,1,0,4,28,220,2,150,4200,240,390,870,150,suspicious_like
+fn004,PE,x86,12,25,0,0,0,0,0,19,55,0,25,475,20,34,96,25,benign_like
+fn005,PE,x64,47,103,1,4,3,2,1,36,310,4,99,3564,188,402,740,99,suspicious_like
+fn006,ELF,x64,21,51,0,0,0,0,2,42,190,0,50,2100,94,160,430,50,benign_like
+fn007,ELF,x64,39,92,0,2,4,3,1,33,280,3,89,2937,156,310,620,89,suspicious_like
+fn008,Mach-O,arm64,28,74,0,1,1,0,3,27,132,0,74,1998,81,143,390,74,benign_like
+fn009,PE,x64,73,181,3,7,5,4,6,44,520,8,173,7612,410,820,1600,173,suspicious_like
+fn010,PE,x86,9,18,0,0,0,0,0,16,48,0,18,288,12,21,55,18,benign_like
+fn011,ELF,arm64,31,67,0,1,2,1,2,39,205,1,66,2574,102,214,488,66,benign_like
+fn012,PE,x64,54,129,2,5,0,3,5,41,390,5,124,5084,276,510,1080,124,suspicious_like
+fn013,Mach-O,x64,44,116,1,2,3,1,4,29,248,2,114,3306,142,286,702,114,benign_like
+fn014,PE,x64,81,204,4,9,8,6,7,52,640,12,192,9984,590,1110,2140,192,suspicious_like
+fn015,ELF,x86,16,33,0,0,1,0,0,22,96,0,33,726,28,64,144,33,benign_like
+fn016,PE,x64,58,142,3,6,4,5,2,37,430,6,136,5032,322,644,1190,136,suspicious_like

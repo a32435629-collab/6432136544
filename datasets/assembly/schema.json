@@ -1,0 +1,30 @@
+{
+  "dataset": "lulz.assembly_sequences",
+  "version": 1,
+  "format": "csv",
+  "file": "instruction_sequences.csv",
+  "provenance": "synthetic_hand_authored",
+  "sample_unit": "instruction_sequence",
+  "sequence_encoding": {
+    "field": "instructions",
+    "separator": ";",
+    "normalization": "Trim whitespace; lowercase mnemonics; preserve operands as tokens; do not treat this text as machine-code bytes."
+  },
+  "target": {
+    "column": "label",
+    "classes": ["benign_like", "suspicious_like"],
+    "meaning": "Illustrative review-priority label only; not a malware verdict"
+  },
+  "columns": [
+    {"name":"sample_id","type":"string"},
+    {"name":"architecture","type":"categorical","allowed":["x86","x86_64"]},
+    {"name":"instructions","type":"instruction_sequence"},
+    {"name":"label","type":"categorical"},
+    {"name":"rationale","type":"string"}
+  ],
+  "preprocessing": {
+    "tokenizer": "Use a versioned mnemonic vocabulary and an explicit unknown token.",
+    "operands": "Normalize registers and constants consistently; retain original text for audit.",
+    "split": "Group related sequences by source binary before train/test splitting when real data is introduced."
+  }
+}
