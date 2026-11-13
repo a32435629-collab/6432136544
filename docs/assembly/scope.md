@@ -1,0 +1,1 @@
+v0.1 contains a deliberately small x86-64 instruction subset. It is not a complete assembler/disassembler. Expand with instruction tables, prefix handling, ModRM/SIB, relocations, branch fixups, architecture-specific test vectors and round-trip tests. Never claim unsupported bytes were decoded.

@@ -1,0 +1,1 @@
+Core owns lifecycle, events, scheduling and caches. Format parsers consume bounded byte spans and return validated metadata. Analysis modules are deterministic and report confidence/limitations. AI is an optional consumer of extracted features, never a prerequisite for basic parsing.

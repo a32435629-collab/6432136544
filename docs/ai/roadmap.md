@@ -1,0 +1,1 @@
+Build an original lightweight model only after collecting licensed, labeled datasets. Start with opcode/function feature extraction and a small classifier; measure precision, recall, model size, latency and RAM. Do not send whole binaries to a model by default.

@@ -1,0 +1,1 @@
+Treat samples as hostile input. Parsers must bounds-check every read, cap allocations and reject malformed lengths. Static parsing must not execute sample code. Dynamic debugging should later run in a disposable isolated VM with explicit user consent.
