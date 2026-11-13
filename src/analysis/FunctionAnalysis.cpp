@@ -1,5 +1,6 @@
 #include "lulz/analysis/FunctionAnalysis.hpp"
 #include "lulz/binary/BinaryReader.hpp"
+#include <Zydis/Zydis.h>
 #include <algorithm>
 #include <iomanip>
 #include <limits>
@@ -70,34 +71,77 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
     std::map<std::uint32_t,std::string> iat;
     for(const auto& im:result.imports) iat[im.iatRva]=im.module+"!"+im.name;
 
-    // Scan each metadata-backed function range for direct relative CALL/JMP and RIP-relative IAT calls.
-    // Unknown instructions are not decoded here; candidate matches are marked as heuristic call sites.
-    for(auto& fn:result.functions) {
-        const std::uint64_t length=std::uint64_t(fn.range.endRva)-fn.range.beginRva;
-        if(length>16*1024*1024) continue;
-        auto off=mapRva(fn.range.beginRva,static_cast<std::size_t>(length),pe,bytes.size());
-        if(!off) continue;
-        const std::size_t start=off.value(), n=static_cast<std::size_t>(length);
-        for(std::size_t i=0;i<n;++i) {
-            const auto op=bytes[start+i];
-            if((op==0xe8 || op==0xe9) && i+5<=n) {
-                const std::int32_t rel=static_cast<std::int32_t>(std::uint32_t(bytes[start+i+1]) | (std::uint32_t(bytes[start+i+2])<<8) | (std::uint32_t(bytes[start+i+3])<<16) | (std::uint32_t(bytes[start+i+4])<<24));
-                const std::int64_t target=std::int64_t(fn.range.beginRva)+static_cast<std::int64_t>(i)+5+rel;
-                if(target>=0 && target<=0xffffffffll) {
-                    FunctionCall c; c.instructionRva=fn.range.beginRva+static_cast<std::uint32_t>(i); c.targetRva=static_cast<std::uint32_t>(target); c.kind=op==0xe8?"call_rel32":"jmp_rel32"; c.target=hex32(c.targetRva); c.resolved=true; fn.calls.push_back(std::move(c));
-                }
-            } else if(op==0xeb && i+2<=n) {
-                const auto rel=static_cast<std::int8_t>(bytes[start+i+1]);
-                const std::int64_t target=std::int64_t(fn.range.beginRva)+static_cast<std::int64_t>(i)+2+rel;
-                if(target>=0 && target<=0xffffffffll) fn.calls.push_back({fn.range.beginRva+static_cast<std::uint32_t>(i),static_cast<std::uint32_t>(target),"jmp_rel8",hex32(static_cast<std::uint32_t>(target)),true});
-            } else if(op==0xff && i+6<=n && (bytes[start+i+1]==0x15 || bytes[start+i+1]==0x25)) {
-                const bool isCall=bytes[start+i+1]==0x15;
-                const std::int32_t disp=static_cast<std::int32_t>(std::uint32_t(bytes[start+i+2]) | (std::uint32_t(bytes[start+i+3])<<8) | (std::uint32_t(bytes[start+i+4])<<16) | (std::uint32_t(bytes[start+i+5])<<24));
-                const std::int64_t slot=std::int64_t(fn.range.beginRva)+static_cast<std::int64_t>(i)+6+disp;
-                FunctionCall c; c.instructionRva=fn.range.beginRva+static_cast<std::uint32_t>(i); c.kind=isCall?"call_indirect_rip":"jmp_indirect_rip";
-                if(slot>=0 && slot<=0xffffffffll) { c.targetRva=static_cast<std::uint32_t>(slot); auto it=iat.find(c.targetRva); if(it!=iat.end()){c.target=it->second;c.resolved=true;} else c.target="IAT["+hex32(c.targetRva)+"]"; }
-                fn.calls.push_back(std::move(c));
+    // Decode complete x64 instructions. This prevents opcode-like bytes inside
+    // immediates/displacements from being mistaken for CALL/JMP instructions.
+    ZydisDecoder decoder;
+    if (!ZYAN_SUCCESS(ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64))) {
+        return Result<FunctionAnalysis>::failure("failed to initialize Zydis x64 decoder");
+    }
+    for (auto& fn : result.functions) {
+        const std::uint64_t length = std::uint64_t(fn.range.endRva) - fn.range.beginRva;
+        if (length > 16 * 1024 * 1024) continue;
+        auto off = mapRva(fn.range.beginRva, static_cast<std::size_t>(length), pe, bytes.size());
+        if (!off) continue;
+
+        const std::size_t start = off.value();
+        const std::size_t n = static_cast<std::size_t>(length);
+        std::size_t cursor = 0;
+        while (cursor < n) {
+            ZydisDecodedInstruction instruction{};
+            ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT]{};
+            const auto status = ZydisDecoderDecodeFull(
+                &decoder, bytes.data() + start + cursor, n - cursor,
+                &instruction, operands);
+            if (!ZYAN_SUCCESS(status) || instruction.length == 0) {
+                ++cursor;
+                continue;
             }
+
+            const auto mnemonic = instruction.mnemonic;
+            const bool isCall = mnemonic == ZYDIS_MNEMONIC_CALL;
+            const bool isJump = mnemonic == ZYDIS_MNEMONIC_JMP;
+            if ((isCall || isJump) && instruction.operand_count_visible > 0) {
+                const auto& targetOperand = operands[0];
+                const std::uint64_t instructionRva =
+                    std::uint64_t(fn.range.beginRva) + cursor;
+                const std::uint64_t instructionVa = pe.imageBase + instructionRva;
+                FunctionCall call;
+                call.instructionRva = static_cast<std::uint32_t>(instructionRva);
+
+                if (targetOperand.type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
+                    targetOperand.imm.is_relative) {
+                    ZyanU64 targetVa = 0;
+                    if (ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(
+                            &instruction, &targetOperand, instructionVa, &targetVa)) &&
+                        targetVa >= pe.imageBase &&
+                        targetVa - pe.imageBase <= 0xffffffffull) {
+                        call.targetRva = static_cast<std::uint32_t>(targetVa - pe.imageBase);
+                        call.kind = isCall ? "call_rel" : "jmp_rel";
+                        call.target = hex32(call.targetRva);
+                        call.resolved = true;
+                        fn.calls.push_back(std::move(call));
+                    }
+                } else if (targetOperand.type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                           targetOperand.mem.base == ZYDIS_REGISTER_RIP) {
+                    ZyanU64 slotVa = 0;
+                    if (ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(
+                            &instruction, &targetOperand, instructionVa, &slotVa)) &&
+                        slotVa >= pe.imageBase &&
+                        slotVa - pe.imageBase <= 0xffffffffull) {
+                        call.targetRva = static_cast<std::uint32_t>(slotVa - pe.imageBase);
+                        call.kind = isCall ? "call_indirect_rip" : "jmp_indirect_rip";
+                        const auto it = iat.find(call.targetRva);
+                        if (it != iat.end()) {
+                            call.target = it->second;
+                            call.resolved = true;
+                        } else {
+                            call.target = "IAT[" + hex32(call.targetRva) + "]";
+                        }
+                        fn.calls.push_back(std::move(call));
+                    }
+                }
+            }
+            cursor += instruction.length;
         }
     }
     // Resolve direct destinations to metadata-backed functions; imports stay separately labeled.
@@ -110,7 +154,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
 }
 
 std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
-    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"heuristic byte-pattern scan\",\n  \"analysis_limits\": [\"Call sites are pattern matches, not instruction-boundary proof; integrate a complete x64 decoder for authoritative call graphs.\", \"Indirect calls are resolved only for RIP-relative IAT forms FF 15/FF 25.\"],\n  \"imports\": [";
+    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"heuristic byte-pattern scan\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect targets other than RIP-relative IAT slots may remain unresolved.\", \"Indirect calls are resolved only for RIP-relative IAT forms FF 15/FF 25.\"],\n  \"imports\": [";
     for(std::size_t i=0;i<a.imports.size();++i){const auto& im=a.imports[i];if(i)o<<",";o<<"\n    {\"module\": \""<<escapeJson(im.module)<<"\", \"name\": \""<<escapeJson(im.name)<<"\", \"iat_rva\": \""<<hex32(im.iatRva)<<"\"}";}
     if(!a.imports.empty()) o<<"\n  ";
     o<<"],\n  \"functions\": [";
