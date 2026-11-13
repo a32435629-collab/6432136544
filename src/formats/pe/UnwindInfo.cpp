@@ -601,6 +601,22 @@ Result<UnwindInfo> parsePEUnwindInfo(
                 "chained RUNTIME_FUNCTION has null UNWIND_INFO RVA"
             );
         }
+
+        const auto chainedBegin = mapRva(
+            bytes, pe, out.chainedFunction.beginRva, 1
+        );
+        const auto chainedEnd = mapRva(
+            bytes, pe, out.chainedFunction.endRva - 1, 1
+        );
+        const auto chainedUnwind = mapRva(
+            bytes, pe, out.chainedFunction.unwindInfoRva, 4
+        );
+
+        if (!chainedBegin || !chainedEnd || !chainedUnwind) {
+            return Result<UnwindInfo>::failure(
+                "chained RUNTIME_FUNCTION references data outside PE sections"
+            );
+        }
     } else if ((out.flags & 0x03) != 0) {
         const auto tailRva = std::uint64_t(function.unwindInfoRva) +
             4 + alignedCodesSize;
@@ -620,6 +636,12 @@ Result<UnwindInfo> parsePEUnwindInfo(
         if (out.handlerRva == 0) {
             return Result<UnwindInfo>::failure(
                 "exception handler RVA is null"
+            );
+        }
+
+        if (!mapRva(bytes, pe, out.handlerRva, 1)) {
+            return Result<UnwindInfo>::failure(
+                "exception handler RVA is outside raw PE section data"
             );
         }
     }
