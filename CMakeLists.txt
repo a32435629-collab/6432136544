@@ -78,6 +78,9 @@ add_library(lulz_core
     src/ai/features/ImportFeatures.cpp
     src/ai/features/FunctionFeatures.cpp
     src/ai/features/InstructionFeatures.cpp
+
+    # Neural network
+    src/ai/neural/NeuralNetwork.cpp
 )
 
 # ==========================================
@@ -155,6 +158,12 @@ if(DLL_LULZ_BUILD_TESTS)
         NAME lulz_tests
         COMMAND lulz_tests
     )
+
+    add_executable(lulz_neural_tests
+        tests/neural_test.cpp
+    )
+    target_link_libraries(lulz_neural_tests PRIVATE lulz_core)
+    add_test(NAME lulz_neural_tests COMMAND lulz_neural_tests)
 
 endif()
 
