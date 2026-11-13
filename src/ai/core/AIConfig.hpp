@@ -20,7 +20,7 @@ struct AIConfig {
     std::string modelName = "none";
     std::string endpoint;
 
-    std::size_t maxFunctions = 1000;
+    std::size_t maxFunctions = 5000;
     std::size_t maxImports = 5000;
     std::size_t maxInstructions = 50000;
 
