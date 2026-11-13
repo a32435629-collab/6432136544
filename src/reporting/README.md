@@ -1,3 +1,3 @@
-# reporting
+# Analysis reporting
 
-Planned subsystem. Add tested implementation here; this directory is intentionally not represented as a finished feature in v0.1.
+Provides JSON and Markdown serialization for analysis reports, including JSON string escaping.

@@ -1,3 +1,3 @@
-# memory
+# Memory image model
 
-Planned subsystem. Add tested implementation here; this directory is intentionally not represented as a finished feature in v0.1.
+Bounds-checked reads from caller-supplied memory regions. Offline snapshot abstraction only; it does not inspect or modify other processes.

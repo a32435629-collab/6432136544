@@ -1,3 +1,3 @@
-# reverse_engineering
+# Reverse-engineering primitives
 
-Planned subsystem. Add tested implementation here; this directory is intentionally not represented as a finished feature in v0.1.
+Builds basic control-flow graphs from already decoded instruction records. Decoding is delegated to the disassembler layer.

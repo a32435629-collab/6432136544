@@ -1,3 +1,3 @@
-# plugins
+# Plugin registry
 
-Planned subsystem. Add tested implementation here; this directory is intentionally not represented as a finished feature in v0.1.
+Validates and stores plugin manifests in-process. Native libraries are not loaded and plugin code is not executed.
