@@ -11,8 +11,6 @@ void FunctionFeatures::extract(
 ) {
     std::size_t totalInstructions = 0;
     std::size_t maxFunctionSize = 0;
-    std::size_t emptyFunctions = 0;
-
     std::size_t decodedFunctions = 0;
     std::size_t functionsWithNoDecodedInstructions = 0;
 
@@ -33,7 +31,7 @@ void FunctionFeatures::extract(
 
     output.addNumeric(
         "functions.average_size",
-        context.functions.empty()
+        decodedFunctions == 0
             ? 0.0
             : static_cast<double>(totalInstructions) /
               static_cast<double>(decodedFunctions)
