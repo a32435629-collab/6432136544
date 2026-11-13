@@ -124,6 +124,13 @@ if(DLL_LULZ_BUILD_TESTS)
         PRIVATE lulz_core
     )
 
+    # Keep assert-based checks active in Release configurations.
+    if(MSVC)
+        target_compile_options(lulz_tests PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(lulz_tests PRIVATE -UNDEBUG)
+    endif()
+
     add_test(
         NAME lulz_tests
         COMMAND lulz_tests
