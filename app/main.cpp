@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -48,11 +49,11 @@ static void usage() {
         << "  functions <file> find x64 functions\n"
         << "  unwind <file> [--json] parse x64 UNWIND_INFO\n"
         << "  analyze <file> [--json [output.json]] full analysis\n"
-        << "  ai <file>         run static AI analysis and feature extraction\\n"
-        << "  train <csv> <model> <targets> <hidden> [epochs] [rate]\\n"
-        << "                    train a neural model from numeric CSV data\\n"
-        << "  predict <model> <v1,v2,...> run neural inference\\n"
-        << "\\nCSV: feature columns first, target columns last (header required).\n";
+        << "  ai <file>         run static AI analysis and feature extraction\n"
+        << "  train <csv> <model> <targets> <hidden> [epochs] [rate]\n"
+        << "                    train a neural model from numeric CSV data\n"
+        << "  predict <model> <v1,v2,...> run neural inference\n"
+        << "\nCSV: feature columns first, target columns last (header required).\n";
 }
 
 // ==========================================
@@ -388,8 +389,8 @@ static int runAI(
         << "\nAI Core: 0.1.0\n"
         << "AI Analysis: 0.1.0\n"
         << "AI Features: 0.1.0\n"
-        << "AI Neural: 0.1.0 (predict command)\\n"
-        << "AI Training: 0.1.0 (train command)\\n"
+        << "AI Neural: 0.1.0 (predict command)\n"
+        << "AI Training: 0.1.0 (train command)\n"
         << "Neural inference: use predict <model> <inputs>\n"
         << "Instruction disassembly: Not integrated\n"
         << "====================================\n";
