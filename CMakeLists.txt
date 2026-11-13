@@ -81,6 +81,10 @@ add_library(lulz_core
 
     # Neural network
     src/ai/neural/NeuralNetwork.cpp
+
+    # AI Training
+    src/ai/training/Dataset.cpp
+    src/ai/training/Trainer.cpp
 )
 
 # ==========================================
@@ -165,6 +169,17 @@ if(DLL_LULZ_BUILD_TESTS)
     target_link_libraries(lulz_neural_tests PRIVATE lulz_core)
     add_test(NAME lulz_neural_tests COMMAND lulz_neural_tests)
 
+    add_executable(lulz_training_tests
+        tests/training_test.cpp
+    )
+    target_link_libraries(lulz_training_tests PRIVATE lulz_core)
+    if(MSVC)
+        target_compile_options(lulz_training_tests PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(lulz_training_tests PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME lulz_training_tests COMMAND lulz_training_tests)
+
 endif()
 
 # ==========================================
@@ -177,6 +192,7 @@ message(STATUS " AI Core: 0.1.0")
 message(STATUS " AI Analysis: 0.1.0")
 message(STATUS " AI Features: 0.1.0")
 message(STATUS " AI Neural: 0.1.0")
+message(STATUS " AI Training: 0.1.0")
 message(STATUS " C++ Standard: 20")
 message(STATUS " Unit Tests: ${DLL_LULZ_BUILD_TESTS}")
 message(STATUS "================================")
