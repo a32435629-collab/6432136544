@@ -1,4 +1,3 @@
-
 cmake_minimum_required(VERSION 3.20)
 
 project(DLL_LULZ_AI VERSION 0.5.0 LANGUAGES CXX)
@@ -28,157 +27,73 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(zydis)
 
-# ==========================================
-# Core library
-# ==========================================
-
 add_library(lulz_core
-
-    # Core
     src/core/Logger.cpp
-
-    # Loaders
     src/loaders/FileLoader.cpp
-
-    # Binary
     src/binary/BinaryReader.cpp
     src/binary/BinaryWriter.cpp
-
-    # HEX
     src/hex/HexParser.cpp
     src/hex/HexFormatter.cpp
-
-    # Format detection
     src/formats/common/FormatDetector.cpp
-
-    # PE
     src/formats/pe/PEParser.cpp
-
-    # ELF
     src/formats/elf/ELFParser.cpp
-
-    # .NET / CLR
     src/formats/dotnet/DotNetParser.cpp
-
-    # Mach-O
     src/formats/macho/MachOParser.cpp
     src/formats/pe/UnwindInfo.cpp
-
-    # Analysis
     src/analysis/EntropyAnalyzer.cpp
     src/analysis/FunctionFinder.cpp
     src/analysis/FunctionAnalysis.cpp
-
-    # ASM
     src/asm/x86/X86Decoder.cpp
     src/asm/x86/X86Encoder.cpp
-
-    # AI Core
     src/ai/core/AIEngine.cpp
     src/ai/core/AIContext.cpp
     src/ai/core/AIConfig.cpp
-
-    # AI Analysis
     src/ai/analysis/AIAnalyzer.cpp
     src/ai/analysis/AnalysisReport.cpp
-
-    # AI Features
     src/ai/features/FeatureExtractor.cpp
     src/ai/features/ImportFeatures.cpp
     src/ai/features/FunctionFeatures.cpp
     src/ai/features/InstructionFeatures.cpp
-
-    # Neural network
     src/ai/neural/NeuralNetwork.cpp
 )
 
-# ==========================================
-# Include directories
-# ==========================================
-
-target_include_directories(lulz_core
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
+target_include_directories(lulz_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(lulz_core PUBLIC cxx_std_20)
 target_link_libraries(lulz_core PRIVATE Zydis)
 
-# ==========================================
-# Compiler options
-# ==========================================
-
 if(MSVC)
-
-    target_compile_options(lulz_core PRIVATE
-        /W4
-        /permissive-
-        /EHsc
-        /utf-8
-    )
-
+    target_compile_options(lulz_core PRIVATE /W4 /permissive- /EHsc /utf-8)
 else()
-
-    target_compile_options(lulz_core PRIVATE
-        -Wall
-        -Wextra
-        -Wpedantic
-    )
-
+    target_compile_options(lulz_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# ==========================================
-# Main executable
-# ==========================================
-
-add_executable(dll_lulz
-    app/main.cpp
-)
-
-target_link_libraries(dll_lulz
-    PRIVATE lulz_core
-)
-
-# ==========================================
-# Unit tests
-# ==========================================
+add_executable(dll_lulz app/main.cpp)
+target_link_libraries(dll_lulz PRIVATE lulz_core)
 
 if(DLL_LULZ_BUILD_TESTS)
-
     enable_testing()
-
-    add_executable(lulz_tests
-        tests/test_main.cpp
-    )
-
-    target_link_libraries(lulz_tests
-        PRIVATE lulz_core
-    )
-
-    # Keep assert-based checks active in Release configurations.
+    add_executable(lulz_tests tests/test_main.cpp)
+    target_link_libraries(lulz_tests PRIVATE lulz_core)
     if(MSVC)
         target_compile_options(lulz_tests PRIVATE /UNDEBUG)
     else()
         target_compile_options(lulz_tests PRIVATE -UNDEBUG)
     endif()
+    add_test(NAME lulz_tests COMMAND lulz_tests)
 
-    add_test(
-        NAME lulz_tests
-        COMMAND lulz_tests
-    )
-
-    add_executable(lulz_neural_tests
-        tests/neural_test.cpp
-    )
+    add_executable(lulz_neural_tests tests/neural_test.cpp)
     target_link_libraries(lulz_neural_tests PRIVATE lulz_core)
     add_test(NAME lulz_neural_tests COMMAND lulz_neural_tests)
 
+    add_executable(lulz_subsystem_tests tests/subsystems_test.cpp)
+    target_link_libraries(lulz_subsystem_tests PRIVATE lulz_core)
+    if(MSVC)
+        target_compile_options(lulz_subsystem_tests PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(lulz_subsystem_tests PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME lulz_subsystem_tests COMMAND lulz_subsystem_tests)
 endif()
-
-# ==========================================
-# Build information
-# ==========================================
 
 message(STATUS "================================")
 message(STATUS " DLL_LULZ_AI ${PROJECT_VERSION}")

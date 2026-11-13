@@ -1,3 +1,5 @@
-# debugger
+# Debugger
 
-Planned subsystem. Add tested implementation here; this directory is intentionally not represented as a finished feature in v0.1.
+`DebugModel.hpp` implements a framework-independent debugger session state model, breakpoint metadata, and a bounded event queue.
+
+It does not attach to or control operating-system processes, read/write process memory, set native breakpoints, or execute debug events. A platform backend must be implemented separately.

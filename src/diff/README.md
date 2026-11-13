@@ -1,3 +1,5 @@
-# diff
+# Binary diff
 
-Planned subsystem. Add tested implementation here; this directory is intentionally not represented as a finished feature in v0.1.
+`BinaryDiff.hpp` compares two byte spans and reports contiguous changed ranges, equal-byte counts, and size differences.
+
+The comparison is offset-based (not semantic, function-aware, or relocation-aware). It performs no file I/O.
