@@ -37,6 +37,10 @@ std::size_t AIContext::instructionCount() const {
     std::size_t total = 0;
 
     for (const auto& function : functions) {
+        if (!function.hasDecodedInstructions) {
+            continue;
+        }
+
         total += function.assembly.size();
     }
 

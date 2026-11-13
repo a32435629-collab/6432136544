@@ -11,25 +11,30 @@ void FunctionFeatures::extract(
 ) {
     std::size_t totalInstructions = 0;
     std::size_t maxFunctionSize = 0;
-    std::size_t emptyFunctions = 0;
+    std::size_t decodedFunctions = 0;
+    std::size_t functionsWithNoDecodedInstructions = 0;
 
     for (const auto& function : context.functions) {
-        const std::size_t count = function.assembly.size();
+        if (!function.hasDecodedInstructions) {
+            continue;
+        }
 
+        ++decodedFunctions;
+        const std::size_t count = function.assembly.size();
         totalInstructions += count;
         maxFunctionSize = std::max(maxFunctionSize, count);
 
         if (count == 0) {
-            ++emptyFunctions;
+            ++functionsWithNoDecodedInstructions;
         }
     }
 
     output.addNumeric(
         "functions.average_size",
-        context.functions.empty()
+        decodedFunctions == 0
             ? 0.0
             : static_cast<double>(totalInstructions) /
-              static_cast<double>(context.functions.size())
+              static_cast<double>(decodedFunctions)
     );
 
     output.addNumeric(
@@ -38,8 +43,8 @@ void FunctionFeatures::extract(
     );
 
     output.addNumeric(
-        "functions.empty",
-        static_cast<double>(emptyFunctions)
+        "functions.with_no_decoded_instructions",
+        static_cast<double>(functionsWithNoDecodedInstructions)
     );
 }
 

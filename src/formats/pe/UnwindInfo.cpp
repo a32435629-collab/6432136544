@@ -192,6 +192,17 @@ Result<UnwindInfo> parsePEUnwindInfo(
         );
     }
 
+    const auto isNonVolatileGpr = [](unsigned reg) {
+        return reg == 3 || reg == 5 || reg == 6 || reg == 7 ||
+               (reg >= 12 && reg <= 15);
+    };
+
+    if (out.frameRegister != 0 && !isNonVolatileGpr(out.frameRegister)) {
+        return Result<UnwindInfo>::failure(
+            "frame register is not a nonvolatile GPR"
+        );
+    }
+
     if (out.frameRegister == 0 && out.frameOffset != 0) {
         return Result<UnwindInfo>::failure(
             "frame offset is set without a frame register"
@@ -214,10 +225,13 @@ Result<UnwindInfo> parsePEUnwindInfo(
 
     const std::size_t alignedCodesSize = alignedSlots * 2;
 
-    if (codesOffset > bytes.size() ||
-        alignedCodesSize > bytes.size() - codesOffset) {
+    const auto codesSectionOffset = mapRva(
+        bytes, pe, function.unwindInfoRva,
+        4 + alignedCodesSize
+    );
+    if (!codesSectionOffset || *codesSectionOffset != offset) {
         return Result<UnwindInfo>::failure(
-            "truncated aligned UNWIND_CODE array"
+            "UNWIND_CODE array crosses section or file boundary"
         );
     }
 
@@ -283,6 +297,11 @@ Result<UnwindInfo> parsePEUnwindInfo(
 
         switch (op) {
         case 0: // UWOP_PUSH_NONVOL
+            if (!isNonVolatileGpr(oi)) {
+                return Result<UnwindInfo>::failure(
+                    "UWOP_PUSH_NONVOL uses a volatile or invalid register"
+                );
+            }
             item.name = "UWOP_PUSH_NONVOL";
             item.detail = "push nonvolatile register " + regName(oi);
             item.value = 8;
@@ -378,6 +397,11 @@ Result<UnwindInfo> parsePEUnwindInfo(
             break;
 
         case 4: // UWOP_SAVE_NONVOL
+            if (!isNonVolatileGpr(oi)) {
+                return Result<UnwindInfo>::failure(
+                    "UWOP_SAVE_NONVOL uses a volatile or invalid register"
+                );
+            }
             item.name = "UWOP_SAVE_NONVOL";
             extra = 1;
 
@@ -397,6 +421,11 @@ Result<UnwindInfo> parsePEUnwindInfo(
             break;
 
         case 5: // UWOP_SAVE_NONVOL_FAR
+            if (!isNonVolatileGpr(oi)) {
+                return Result<UnwindInfo>::failure(
+                    "UWOP_SAVE_NONVOL_FAR uses a volatile or invalid register"
+                );
+            }
             item.name = "UWOP_SAVE_NONVOL_FAR";
             extra = 2;
 
@@ -459,6 +488,11 @@ Result<UnwindInfo> parsePEUnwindInfo(
             break;
 
         case 8: // UWOP_SAVE_XMM128
+            if (oi < 6) {
+                return Result<UnwindInfo>::failure(
+                    "UWOP_SAVE_XMM128 must reference XMM6-XMM15"
+                );
+            }
             item.name = "UWOP_SAVE_XMM128";
             extra = 1;
 
@@ -478,6 +512,11 @@ Result<UnwindInfo> parsePEUnwindInfo(
             break;
 
         case 9: // UWOP_SAVE_XMM128_FAR
+            if (oi < 6) {
+                return Result<UnwindInfo>::failure(
+                    "UWOP_SAVE_XMM128_FAR must reference XMM6-XMM15"
+                );
+            }
             item.name = "UWOP_SAVE_XMM128_FAR";
             extra = 2;
 
@@ -534,10 +573,14 @@ Result<UnwindInfo> parsePEUnwindInfo(
     if ((out.flags & 0x04) != 0) {
         out.chained = true;
 
-        if (tailOffset > bytes.size() ||
-            12 > bytes.size() - tailOffset) {
+        const auto tailRva = std::uint64_t(function.unwindInfoRva) +
+            4 + alignedCodesSize;
+        const auto tailSectionOffset = tailRva <= 0xffffffffu
+            ? mapRva(bytes, pe, static_cast<std::uint32_t>(tailRva), 12)
+            : std::nullopt;
+        if (!tailSectionOffset || *tailSectionOffset != tailOffset) {
             return Result<UnwindInfo>::failure(
-                "truncated chained RUNTIME_FUNCTION"
+                "chained RUNTIME_FUNCTION crosses section or file boundary"
             );
         }
 
@@ -558,11 +601,31 @@ Result<UnwindInfo> parsePEUnwindInfo(
                 "chained RUNTIME_FUNCTION has null UNWIND_INFO RVA"
             );
         }
-    } else if ((out.flags & 0x03) != 0) {
-        if (tailOffset > bytes.size() ||
-            4 > bytes.size() - tailOffset) {
+
+        const auto chainedBegin = mapRva(
+            bytes, pe, out.chainedFunction.beginRva, 1
+        );
+        const auto chainedEnd = mapRva(
+            bytes, pe, out.chainedFunction.endRva - 1, 1
+        );
+        const auto chainedUnwind = mapRva(
+            bytes, pe, out.chainedFunction.unwindInfoRva, 4
+        );
+
+        if (!chainedBegin || !chainedEnd || !chainedUnwind) {
             return Result<UnwindInfo>::failure(
-                "truncated exception handler RVA"
+                "chained RUNTIME_FUNCTION references data outside PE sections"
+            );
+        }
+    } else if ((out.flags & 0x03) != 0) {
+        const auto tailRva = std::uint64_t(function.unwindInfoRva) +
+            4 + alignedCodesSize;
+        const auto tailSectionOffset = tailRva <= 0xffffffffu
+            ? mapRva(bytes, pe, static_cast<std::uint32_t>(tailRva), 4)
+            : std::nullopt;
+        if (!tailSectionOffset || *tailSectionOffset != tailOffset) {
+            return Result<UnwindInfo>::failure(
+                "exception handler RVA crosses section or file boundary"
             );
         }
 
@@ -573,6 +636,12 @@ Result<UnwindInfo> parsePEUnwindInfo(
         if (out.handlerRva == 0) {
             return Result<UnwindInfo>::failure(
                 "exception handler RVA is null"
+            );
+        }
+
+        if (!mapRva(bytes, pe, out.handlerRva, 1)) {
+            return Result<UnwindInfo>::failure(
+                "exception handler RVA is outside raw PE section data"
             );
         }
     }

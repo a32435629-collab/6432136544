@@ -57,6 +57,12 @@ int main() {
     assert(fa && fa.value().functions.size()==1);
     assert(!fa.value().functions[0].calls.empty());
     assert(fa.value().functions[0].calls[0].kind=="call_rel32");
+    assert(fa.value().functions[0].calls.size()==1);
+    // An E8 byte inside a MOV immediate is data, not a second CALL instruction.
+    pe[0x305]=0x48; pe[0x306]=0xb8; pe[0x307]=0xe8; pe[0x308]=0x11;
+    pe[0x309]=0; pe[0x30a]=0; pe[0x30b]=0; pe[0x30c]=0; pe[0x30d]=0; pe[0x30e]=0;
+    auto decodedAgain=lulz::analyzePEFunctions(pe,parsed.value());
+    assert(decodedAgain && decodedAgain.value().functions[0].calls.size()==1);
     assert(fa.value().functions[0].calls[0].resolved);
     const auto json=lulz::functionAnalysisToJson(fa.value(),parsed.value());
     assert(json.find("call_graph")!=std::string::npos);
@@ -77,10 +83,10 @@ int main() {
     assert(save.value().operations[0].value==16 && save.value().savedRegisters[0]=="RBX");
 
     // SAVE_XMM128 uses 16-byte scaling and is reported separately from GPR saves.
-    pe[0x402]=2; pe[0x404]=4; pe[0x405]=0x08; pe[0x406]=2; pe[0x407]=0;
+    pe[0x402]=2; pe[0x404]=4; pe[0x405]=0x68; pe[0x406]=2; pe[0x407]=0;
     auto xmm=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
     assert(xmm && xmm.value().savedXmmRegisters.size()==1);
-    assert(xmm.value().savedXmmRegisters[0]=="XMM0");
+    assert(xmm.value().savedXmmRegisters[0]=="XMM6");
     assert(xmm.value().operations[0].value==32);
 
     // ALLOC_LARGE OpInfo=0: the next slot is scaled by eight.
@@ -105,5 +111,20 @@ int main() {
     w32(0x404,0xffffffff);
     assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
     assert(!lulz::parsePEUnwindInfo(std::span<const std::uint8_t>(pe.data(),0x402),parsed.value(),runtime.value()[0]));
+
+    // Reject volatile GPRs in operations that must save nonvolatile registers.
+    pe[0x400]=0x01; pe[0x401]=4; pe[0x402]=1; pe[0x403]=0;
+    pe[0x404]=4; pe[0x405]=0x10; // UWOP_PUSH_NONVOL RAX (invalid)
+    assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
+
+    // XMM save operations may only name the nonvolatile XMM6-XMM15 range.
+    pe[0x402]=2; pe[0x404]=4; pe[0x405]=0x08; // UWOP_SAVE_XMM128 XMM0
+    pe[0x406]=0; pe[0x407]=0;
+    assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
+
+    // Frame register must be a nonvolatile GPR; RAX is not valid.
+    pe[0x400]=0x01; pe[0x401]=4; pe[0x402]=0; pe[0x403]=1;
+    assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
+
     std::cout<<"All foundation tests passed\n";
 }
