@@ -12,6 +12,8 @@ constexpr std::uint32_t PT_INTERP = 3;
 constexpr std::uint32_t SHT_STRTAB = 3;
 constexpr std::uint32_t SHT_DYNAMIC = 6;
 constexpr std::uint32_t SHT_NOBITS = 8;
+constexpr std::uint64_t DT_NULL = 0;
+constexpr std::uint64_t DT_NEEDED = 1;
 constexpr std::uint64_t PN_XNUM = 0xffff;
 constexpr std::uint64_t SHN_XINDEX = 0xffff;
 
