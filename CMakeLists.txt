@@ -57,6 +57,7 @@ add_library(lulz_core
     src/ai/features/InstructionFeatures.cpp
     src/ai/neural/NeuralNetwork.cpp
     src/ai/providers/OpenAIClient.cpp
+    src/ai/providers/DeepSeekClient.cpp
 )
 
 target_include_directories(lulz_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
