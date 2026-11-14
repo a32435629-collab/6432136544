@@ -20,6 +20,13 @@ std::string AnalysisReport::toText(const AnalysisResult& result) {
         else output << std::setprecision(6) << feature.value;
         output << '\n';
     }
+    output << "\nNEURAL INFERENCE\n";
+    output << "Status: " << (result.neuralInferencePerformed ? "PERFORMED" : "NOT PERFORMED") << '\n';
+    if (result.neuralInferencePerformed) {
+        output << "Output:";
+        for (double value : result.neuralOutput) output << ' ' << value;
+        output << '\n';
+    }
     output << "\nFINDINGS\n";
     if (result.findings.empty()) output << "No findings.\n";
     else for (std::size_t i = 0; i < result.findings.size(); ++i)
