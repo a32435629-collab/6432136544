@@ -56,11 +56,15 @@ add_library(lulz_core
     src/ai/features/FunctionFeatures.cpp
     src/ai/features/InstructionFeatures.cpp
     src/ai/neural/NeuralNetwork.cpp
+    src/ai/providers/OpenAIClient.cpp
 )
 
 target_include_directories(lulz_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(lulz_core PUBLIC cxx_std_20)
 target_link_libraries(lulz_core PRIVATE Zydis)
+if(WIN32)
+    target_link_libraries(lulz_core PRIVATE winhttp)
+endif()
 
 if(MSVC)
     target_compile_options(lulz_core PRIVATE /W4 /permissive- /EHsc /utf-8)

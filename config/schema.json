@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/dll-lulz-ai/config.schema.json",
   "title": "DLL LULZ AI configuration preset",
-  "description": "Preset schema for AIConfig. Presets are documentation until a config loader is enabled.",
+  "description": "Preset schema for AIConfig. CLI provider selection is supported; JSON preset loading remains future work.",
   "type": "object",
   "additionalProperties": false,
   "required": ["enabled", "provider", "modelName", "endpoint", "maxFunctions", "maxImports", "maxInstructions", "modelPath"],

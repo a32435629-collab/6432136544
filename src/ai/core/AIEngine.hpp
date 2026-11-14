@@ -13,6 +13,8 @@ struct AIAnalysisResult {
     bool neuralInferencePerformed = false;
     std::vector<double> neuralOutput;
     std::string neuralError;
+    bool providerConnected = false;
+    std::string providerResponse;
     std::string error;
 };
 class AIEngine {

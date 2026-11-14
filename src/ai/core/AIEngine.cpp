@@ -1,6 +1,8 @@
 #include "AIEngine.hpp"
 #include "ai/features/FeatureExtractor.hpp"
 #include "ai/neural/NeuralNetwork.hpp"
+#include "ai/providers/OpenAIClient.hpp"
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <utility>
@@ -59,7 +61,26 @@ AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
             }
         }
     } else if (config_.provider == AIProvider::OpenAI) {
-        result.neuralError = "OpenAI transport is not configured in this build; use a local .lznn checkpoint";
+        const char* key = std::getenv("OPENAI_API_KEY");
+        std::ostringstream prompt;
+        prompt << "Review these static PE analysis features. Explain noteworthy indicators, limitations, and benign alternatives. Do not issue a definitive malware verdict.\n";
+        for (const auto& feature : result.features.values) {
+            prompt << feature.name << " = ";
+            if (feature.type == features::FeatureType::Categorical) prompt << feature.textValue;
+            else prompt << feature.value;
+            prompt << '\n';
+        }
+        const std::string endpoint = config_.endpoint.empty()
+            ? "https://api.openai.com/v1/chat/completions" : config_.endpoint;
+        std::string response;
+        std::string providerError;
+        if (providers::analyzeWithOpenAI(endpoint, key ? key : "",
+                config_.modelName, prompt.str(), response, &providerError)) {
+            result.providerConnected = true;
+            result.providerResponse = std::move(response);
+        } else {
+            result.neuralError = providerError;
+        }
     }
 
     std::ostringstream report;
@@ -75,12 +96,13 @@ AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
     switch (config_.provider) {
         case AIProvider::None: report << "None (static analysis only)"; break;
         case AIProvider::Local: report << "Local checkpoint"; break;
-        case AIProvider::OpenAI: report << "OpenAI (not configured)"; break;
+        case AIProvider::OpenAI: report << (result.providerConnected ? "OpenAI (connected)" : "OpenAI (not connected)"); break;
     }
     report << '\n';
     if (!config_.modelName.empty()) report << "Model: " << config_.modelName << '\n';
     report << "Neural inference: " << (result.neuralInferencePerformed ? "performed" : "not performed") << '\n';
-    if (!result.neuralError.empty()) report << "Neural status: " << result.neuralError << '\n';
+    if (!result.neuralError.empty()) report << "Provider/model status: " << result.neuralError << '\n';
+    if (result.providerConnected) report << "Provider response: " << result.providerResponse << '\n';
     if (result.neuralInferencePerformed) {
         report << "Neural output:";
         for (double value : result.neuralOutput) report << ' ' << value;
@@ -100,8 +122,9 @@ AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
         result.findings.push_back("Anti-analysis or debugger-query API indicators were found.");
     if (numericFeature(result.features, "instructions.control_flow") > 0.0)
         result.findings.push_back("Decoded control-flow instruction indicators were included in the feature vector.");
+    if (result.providerConnected) result.findings.push_back("OpenAI provider returned an interpretation of the extracted static features.");
     if (result.neuralInferencePerformed)
-        result.findings.push_back("A supplied neural checkpoint produced an inference output; interpret it using that model's documented labels and validation.");
+        result.findings.push_back("A supplied neural checkpoint produced an inference output; interpret it using the model documentation and validation.");
     else if (config_.provider == AIProvider::Local)
         result.findings.push_back("Local neural inference was skipped because the configured checkpoint could not be loaded or did not match the feature vector.");
     if (!context.additionalNotes.empty()) result.findings.push_back("Additional analysis notes are available.");

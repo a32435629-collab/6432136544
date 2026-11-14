@@ -53,5 +53,18 @@ The checkpoint must be trained for the exact numeric feature-vector schema and
 feature order emitted by the matching application version. The loader validates
 the model file and the inference input dimension. No pretrained malware model is
 bundled, and a successful forward pass is not evidence of malware-detection
-accuracy. OpenAI is still a reserved provider enum; the remote HTTP transport is
-not implemented in this release.
+accuracy. OpenAI requests are sent over HTTPS on Windows using WinHTTP. The API key is read from the OPENAI_API_KEY environment variable; original file bytes are not uploaded.
+
+
+### OpenAI provider
+
+On Windows, run:
+
+```powershell
+$env:OPENAI_API_KEY = "your-api-key"
+dll_lulz.exe ai sample.exe --openai
+```
+
+The default model is `gpt-4o-mini`. Only extracted static feature metadata is
+sent to the endpoint; the original executable bytes are not uploaded. A custom
+endpoint can be set through `AIConfig::endpoint`.

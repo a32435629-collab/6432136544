@@ -27,6 +27,9 @@ std::string AnalysisReport::toText(const AnalysisResult& result) {
         for (double value : result.neuralOutput) output << ' ' << value;
         output << '\n';
     }
+    if (result.providerConnected) {
+        output << "\nEXTERNAL AI PROVIDER\n" << result.providerResponse << '\n';
+    }
     output << "\nFINDINGS\n";
     if (result.findings.empty()) output << "No findings.\n";
     else for (std::size_t i = 0; i < result.findings.size(); ++i)

@@ -11,6 +11,8 @@ struct AnalysisResult {
     features::FeatureVector features;
     bool neuralInferencePerformed = false;
     std::vector<double> neuralOutput;
+    bool providerConnected = false;
+    std::string providerResponse;
     std::string error;
 };
 } // namespace lulz::ai::analysis

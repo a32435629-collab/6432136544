@@ -150,5 +150,4 @@ A local neural checkpoint can be selected with
 `dll_lulz.exe ai <file> --model <checkpoint.lznn>`. The model must match the
 numeric feature-vector schema and order of this build. No pretrained malware
 classifier is shipped; a forward pass is reported as inference only, not as a
-malware verdict. The OpenAI provider identifier remains reserved and its remote
-transport is not part of this release.
+malware verdict. The OpenAI provider uses Windows WinHTTP and reads OPENAI_API_KEY from the environment. The --openai CLI option sends extracted feature metadata, not executable bytes.

@@ -2,7 +2,7 @@
   "enabled": true,
   "provider": "none",
   "modelName": "none",
-  "endpoint": "",
+  "endpoint": "https://api.openai.com/v1/chat/completions",
   "modelPath": "",
   "maxFunctions": 5000,
   "maxImports": 5000,

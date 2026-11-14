@@ -14,6 +14,8 @@ AnalysisResult AIAnalyzer::analyze(const AnalysisInput& input) const {
     result.features = engineResult.features;
     result.neuralInferencePerformed = engineResult.neuralInferencePerformed;
     result.neuralOutput = engineResult.neuralOutput;
+    result.providerConnected = engineResult.providerConnected;
+    result.providerResponse = engineResult.providerResponse;
     result.error = engineResult.error;
     return result;
 }
