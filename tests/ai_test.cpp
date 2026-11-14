@@ -1,5 +1,6 @@
 #include "ai/core/AIEngine.hpp"
 #include "ai/analysis/AIAnalyzer.hpp"
+#include "ai/analysis/AnalysisReport.hpp"
 #include "ai/features/FeatureExtractor.hpp"
 
 #include <cassert>
@@ -58,6 +59,9 @@ int main() {
     const auto analyzed = analysis::AIAnalyzer{}.analyze(input);
     assert(analyzed.success);
     assert(analyzed.sourceLabel == input.sourceLabel);
+    assert(!analyzed.features.empty());
+    const auto report = analysis::AnalysisReport::toText(analyzed);
+    assert(report.find("imports.remote_memory") != std::string::npos);
 
     AIConfig limited;
     limited.maxFunctions = 1;
