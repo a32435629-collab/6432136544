@@ -123,8 +123,8 @@ bool analyzeWithOpenAI(const std::string& endpoint, const std::string& apiKey,
     const std::string body = "{\"model\":\"" + jsonEscape(model) +
         "\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a careful static binary-analysis assistant. Do not claim a malware verdict from heuristics alone.\"},{\"role\":\"user\",\"content\":\"" +
         jsonEscape(prompt) + "\"}],\"temperature\":0.1}";
-    const std::wstring headers = L"Content-Type: application/json\\r\\nAuthorization: Bearer " +
-        widenAscii(apiKey) + L"\\r\\n";
+    const std::wstring headers = L"Content-Type: application/json\r\nAuthorization: Bearer " +
+        widenAscii(apiKey) + L"\r\n";
 
     if (!WinHttpSendRequest(request, headers.c_str(),
             static_cast<DWORD>(headers.size()), const_cast<char*>(body.data()),
