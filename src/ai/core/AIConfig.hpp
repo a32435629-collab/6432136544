@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <string>
 namespace lulz::ai {
-enum class AIProvider { None, Local, OpenAI };
+enum class AIProvider { None, Local, OpenAI, DeepSeek };
 struct AIConfig {
     bool enabled = true;
     AIProvider provider = AIProvider::None;
