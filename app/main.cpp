@@ -85,7 +85,7 @@ static bool writeTextFile(
 static int runAI(
     const std::vector<std::uint8_t>& bytes,
     const std::string& filePath,
-    const AIConfig& aiConfig
+    const lulz::ai::AIConfig& aiConfig
 ) {
     using namespace lulz::ai;
     using namespace lulz::ai::analysis;
@@ -343,9 +343,9 @@ int main(int argc, char** argv) {
     // ======================================
 
     if (cmd == "ai") {
-        AIConfig aiConfig;
+        lulz::ai::AIConfig aiConfig;
         if (argc == 5 && std::string(argv[3]) == "--model") {
-            aiConfig.provider = AIProvider::Local;
+            aiConfig.provider = lulz::ai::AIProvider::Local;
             aiConfig.modelPath = argv[4];
             aiConfig.modelName = "local-checkpoint";
         } else if (argc != 3) {

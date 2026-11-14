@@ -3,6 +3,7 @@
 #include "ai/neural/NeuralNetwork.hpp"
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 namespace lulz::ai {
 namespace {
