@@ -1,21 +1,20 @@
 #pragma once
-
 #include "AIConfig.hpp"
 #include "AIContext.hpp"
 #include "ai/features/FeatureVector.hpp"
-
 #include <string>
 #include <vector>
-
 namespace lulz::ai {
 struct AIAnalysisResult {
     bool success = false;
     std::string summary;
     std::vector<std::string> findings;
     features::FeatureVector features;
+    bool neuralInferencePerformed = false;
+    std::vector<double> neuralOutput;
+    std::string neuralError;
     std::string error;
 };
-
 class AIEngine {
 public:
     AIEngine();

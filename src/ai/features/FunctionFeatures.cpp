@@ -1,5 +1,4 @@
 #include "FunctionFeatures.hpp"
-
 #include <algorithm>
 #include <cstddef>
 
@@ -9,7 +8,8 @@ void FunctionFeatures::extract(const AIContext& context, FeatureVector& output) 
     std::size_t decodedFunctions=0, emptyDecodedFunctions=0;
     for (const auto& function : context.functions) {
         if (!function.hasDecodedInstructions) continue;
-        const std::size_t count=function.assembly.size();
+        const std::size_t count = function.decodedInstructions.empty()
+            ? function.assembly.size() : function.decodedInstructions.size();
         if (decodedFunctions==0) minFunctionSize=count;
         else minFunctionSize=std::min(minFunctionSize,count);
         ++decodedFunctions;

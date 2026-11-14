@@ -1,4 +1,4 @@
-# DLL LULZ AI v0.5.0
+# DLL LULZ AI v0.6.0
 
 **DLL LULZ AI** — модульный C++20-инструмент для статического анализа исполняемых файлов, исследования бинарных форматов и экспериментов с нейросетевыми моделями.
 
@@ -136,3 +136,19 @@ Call graph не является полным CFG: косвенные перех
 ## License
 
 Проверьте файлы лицензий и зависимости проекта перед распространением сборок. Не добавляйте сторонние компоненты без соответствующего license notice.
+
+
+## Version 0.6.0 — decoded instruction pipeline
+
+The x64 PE function-analysis pass now retains each successfully decoded Zydis
+instruction mnemonic and RVA. The AI context receives those instructions, and
+the feature extractor derives instruction and per-function statistics from the
+decoded stream rather than synthetic metadata lines. Undecodable bytes are
+counted separately by the PE analysis layer.
+
+A local neural checkpoint can be selected with
+`dll_lulz.exe ai <file> --model <checkpoint.lznn>`. The model must match the
+numeric feature-vector schema and order of this build. No pretrained malware
+classifier is shipped; a forward pass is reported as inference only, not as a
+malware verdict. The OpenAI provider identifier remains reserved and its remote
+transport is not part of this release.

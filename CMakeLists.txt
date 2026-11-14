@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(DLL_LULZ_AI VERSION 0.5.0 LANGUAGES CXX)
+project(DLL_LULZ_AI VERSION 0.6.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -112,10 +112,10 @@ endif()
 
 message(STATUS "================================")
 message(STATUS " DLL_LULZ_AI ${PROJECT_VERSION}")
-message(STATUS " AI Core: 0.2.0")
-message(STATUS " AI Analysis: 0.2.0")
-message(STATUS " AI Features: 0.2.0")
-message(STATUS " AI Neural: 0.1.0")
+message(STATUS " AI Core: 0.6.0")
+message(STATUS " AI Analysis: 0.6.0")
+message(STATUS " AI Features: 0.6.0")
+message(STATUS " AI Neural: 0.6.0")
 message(STATUS " C++ Standard: 20")
 message(STATUS " Unit Tests: ${DLL_LULZ_BUILD_TESTS}")
 message(STATUS "================================")

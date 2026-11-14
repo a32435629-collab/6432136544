@@ -1,5 +1,4 @@
 #include "InstructionFeatures.hpp"
-
 #include <algorithm>
 #include <cctype>
 #include <string>
@@ -18,28 +17,29 @@ std::string mnemonicOf(const std::string& text) {
     const auto last = text.find_first_of(" \t", first);
     return lowerAscii(text.substr(first, last == std::string::npos ? last : last - first));
 }
-bool isJump(std::string_view mnemonic) {
-    return mnemonic.size() >= 2 && mnemonic[0] == 'j';
+bool isJump(std::string_view m) {
+    return m == "jmp" || m == "ljmp" || (m.size() >= 2 && m[0] == 'j') ||
+           m.starts_with("loop") || m.starts_with("jcx");
 }
-bool isStackOperation(std::string_view mnemonic, const std::string& instruction) {
-    return mnemonic == "push" || mnemonic == "pushf" || mnemonic == "pushfq" ||
-           mnemonic == "pop" || mnemonic == "popf" || mnemonic == "popfq" ||
-           mnemonic == "enter" || mnemonic == "leave" ||
-           (mnemonic == "sub" && instruction.find("rsp") != std::string::npos) ||
-           (mnemonic == "add" && instruction.find("rsp") != std::string::npos);
+bool isStackOperation(std::string_view m, const std::string& line) {
+    return m == "push" || m.starts_with("pushf") || m == "pop" ||
+           m.starts_with("popf") || m == "enter" || m == "leave" ||
+           ((m == "sub" || m == "add" || m == "lea") &&
+            (line.find("rsp") != std::string::npos || line.find("esp") != std::string::npos));
 }
-} // namespace
-
+}
 void InstructionFeatures::extract(const AIContext& context, FeatureVector& output) {
     std::size_t decodedFunctions=0, decodedInstructions=0, calls=0, jumps=0;
     std::size_t stackOperations=0, returns=0, invalidText=0;
     for (const auto& function : context.functions) {
         if (!function.hasDecodedInstructions) continue;
         ++decodedFunctions;
-        for (const auto& rawText : function.assembly) {
+        const auto& lines = function.decodedInstructions.empty()
+            ? function.assembly : function.decodedInstructions;
+        for (const auto& raw : lines) {
             ++decodedInstructions;
-            const std::string instruction=lowerAscii(rawText);
-            const std::string mnemonic=mnemonicOf(rawText);
+            const std::string instruction=lowerAscii(raw);
+            const std::string mnemonic=mnemonicOf(raw);
             if (mnemonic.empty()) { ++invalidText; continue; }
             if (mnemonic=="call" || mnemonic=="callq") ++calls;
             if (isJump(mnemonic)) ++jumps;

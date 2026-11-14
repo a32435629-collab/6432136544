@@ -3,7 +3,8 @@
   "provider": "none",
   "modelName": "none",
   "endpoint": "",
+  "modelPath": "",
   "maxFunctions": 5000,
   "maxImports": 5000,
-  "maxInstructions": 50000
+  "maxInstructions": 500000
 }

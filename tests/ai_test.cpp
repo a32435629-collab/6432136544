@@ -3,6 +3,7 @@
 #include "ai/analysis/AnalysisReport.hpp"
 #include "ai/features/FeatureExtractor.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <string>
 

@@ -39,3 +39,19 @@ This is a compact MLP implementation, not a pretrained malware detector, LLM or
 decompiler. Useful detection quality requires representative labeled data,
 held-out evaluation and calibrated thresholds. No production detection accuracy
 is claimed.
+
+
+## DLL LULZ AI 0.6.0 integration
+
+The AI engine can run a local checkpoint with:
+
+```powershell
+dll_lulz.exe ai sample.exe --model models/checkpoints/model.lznn
+```
+
+The checkpoint must be trained for the exact numeric feature-vector schema and
+feature order emitted by the matching application version. The loader validates
+the model file and the inference input dimension. No pretrained malware model is
+bundled, and a successful forward pass is not evidence of malware-detection
+accuracy. OpenAI is still a reserved provider enum; the remote HTTP transport is
+not implemented in this release.

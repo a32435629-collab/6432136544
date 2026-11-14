@@ -93,11 +93,18 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
                 &decoder, bytes.data() + start + cursor, n - cursor,
                 &instruction, operands);
             if (!ZYAN_SUCCESS(status) || instruction.length == 0) {
+                ++result.undecodableBytes;
                 ++cursor;
                 continue;
             }
 
             const auto mnemonic = instruction.mnemonic;
+            fn.instructions.push_back({
+                static_cast<std::uint32_t>(std::uint64_t(fn.range.beginRva) + cursor),
+                instruction.length,
+                ZydisMnemonicGetString(mnemonic)
+            });
+            ++result.decodedInstructions;
             const bool isCall = mnemonic == ZYDIS_MNEMONIC_CALL;
             const bool isJump = mnemonic == ZYDIS_MNEMONIC_JMP;
             if ((isCall || isJump) && instruction.operand_count_visible > 0) {

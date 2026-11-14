@@ -13,6 +13,7 @@
 #include "lulz/loaders/FileLoader.hpp"
 
 #include "ai/core/AIContext.hpp"
+#include "ai/core/AIConfig.hpp"
 #include "ai/analysis/AIAnalyzer.hpp"
 #include "ai/analysis/AnalysisInput.hpp"
 #include "ai/analysis/AnalysisResult.hpp"
@@ -35,7 +36,7 @@
 
 static void usage() {
     std::cout
-        << "DLL LULZ AI v0.5.0\n"
+        << "DLL LULZ AI v0.6.0\n"
         << "Commands:\n"
         << "  info <file>       identify format and entropy\n"
         << "  hex <file>        show first 256 bytes\n"
@@ -44,7 +45,7 @@ static void usage() {
         << "  functions <file> find x64 functions\n"
         << "  unwind <file> [--json] parse x64 UNWIND_INFO\n"
         << "  analyze <file> [--json [output.json]] full analysis\n"
-        << "  ai <file>         run AI analysis and feature extraction\n";
+        << "  ai <file> [--model checkpoint.lznn] run static + neural analysis\n";
 }
 
 // ==========================================
@@ -83,7 +84,8 @@ static bool writeTextFile(
 
 static int runAI(
     const std::vector<std::uint8_t>& bytes,
-    const std::string& filePath
+    const std::string& filePath,
+    const AIConfig& aiConfig
 ) {
     using namespace lulz::ai;
     using namespace lulz::ai::analysis;
@@ -149,6 +151,11 @@ static int runAI(
             std::to_string(function.unwind.stackAllocation)
         );
 
+        for (const auto& instruction : function.instructions) {
+            info.decodedInstructions.push_back(instruction.mnemonic);
+        }
+        info.hasDecodedInstructions = !info.decodedInstructions.empty();
+
         for (const auto& call : function.calls) {
             info.assembly.push_back(
                 call.kind + " -> " + call.target
@@ -183,10 +190,9 @@ static int runAI(
     // AI Analysis
     // ======================================
 
-    AIAnalyzer analyzer;
+    AIAnalyzer analyzer(aiConfig);
 
-    AnalysisResult result =
-        analyzer.analyze(input);
+    AnalysisResult result = analyzer.analyze(input);
 
     // ======================================
     // Output Metadata
@@ -251,11 +257,12 @@ static int runAI(
     // ======================================
 
     std::cout
-        << "\nAI Core: 0.1.0\n"
-        << "AI Analysis: 0.1.0\n"
-        << "AI Features: 0.1.0\n"
-        << "Neural inference: Not performed\n"
-        << "Instruction disassembly: Not integrated\n"
+        << "\nAI Core: 0.6.0\n"
+        << "AI Analysis: 0.6.0\n"
+        << "AI Features: 0.6.0\n"
+        << "AI Neural: 0.6.0\n"
+        << "Neural inference: " << (result.summary.find("Neural inference: performed") != std::string::npos ? "Performed" : "Not performed") << "\n"
+        << "Instruction disassembly: " << context.instructionCount() << " instructions\n"
         << "====================================\n";
 
     return 0;
@@ -336,7 +343,16 @@ int main(int argc, char** argv) {
     // ======================================
 
     if (cmd == "ai") {
-        return runAI(bytes, filePath);
+        AIConfig aiConfig;
+        if (argc == 5 && std::string(argv[3]) == "--model") {
+            aiConfig.provider = AIProvider::Local;
+            aiConfig.modelPath = argv[4];
+            aiConfig.modelName = "local-checkpoint";
+        } else if (argc != 3) {
+            std::cerr << "Usage: dll_lulz ai <file> [--model checkpoint.lznn]\n";
+            return 2;
+        }
+        return runAI(bytes, filePath, aiConfig);
     }
 
     // ======================================
