@@ -45,7 +45,7 @@ static void usage() {
         << "  functions <file> find x64 functions\n"
         << "  unwind <file> [--json] parse x64 UNWIND_INFO\n"
         << "  analyze <file> [--json [output.json]] full analysis\n"
-        << "  ai <file> [--model checkpoint.lznn | --openai] static + AI analysis\n";
+        << "  ai <file> [--model checkpoint.lznn | --openai | --deepseek] static + AI analysis\n";
 }
 
 // ==========================================
@@ -351,8 +351,11 @@ int main(int argc, char** argv) {
         } else if (argc == 4 && std::string(argv[3]) == "--openai") {
             aiConfig.provider = lulz::ai::AIProvider::OpenAI;
             aiConfig.modelName = "gpt-4o-mini";
+        } else if (argc == 4 && std::string(argv[3]) == "--deepseek") {
+            aiConfig.provider = lulz::ai::AIProvider::DeepSeek;
+            aiConfig.modelName = "deepseek-flash";
         } else if (argc != 3) {
-            std::cerr << "Usage: dll_lulz ai <file> [--model checkpoint.lznn | --openai]\n";
+            std::cerr << "Usage: dll_lulz ai <file> [--model checkpoint.lznn | --openai | --deepseek]\n";
             return 2;
         }
         return runAI(bytes, filePath, aiConfig);
