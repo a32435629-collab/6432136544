@@ -1,77 +1,138 @@
 # DLL LULZ AI v0.5.0
 
-A modular C++20 reverse-engineering and binary-analysis workbench.
+**DLL LULZ AI** — модульный C++20-инструмент для статического анализа исполняемых файлов, исследования бинарных форматов и экспериментов с нейросетевыми моделями.
 
-## Current implementation (v0.1 foundation)
+Проект находится в активной разработке. Часть компонентов реализована и покрыта тестами, другие являются ограниченными foundation-модулями. Этот документ отделяет текущие возможности от незавершённых направлений.
 
-Implemented and usable:
-- binary file loading and bounded little-endian reads;
-- hex text parsing and formatting;
-- basic file-format identification;
-- PE32/PE32+ header and section-table inspection;
-- byte-frequency entropy estimate;
-- small, explicitly limited x86/x64 instruction decoder and encoder;
-- heuristic function-entry candidate finder;
-- x64 PE exception-directory (`.pdata`) and `UNWIND_INFO` parsing, including common `UWOP_*` operations, chained records, and handler metadata;
-- human-readable and JSON unwind output;
-- command-line interface and unit tests for normal and malformed unwind records.
+## Возможности
 
-Not yet implemented: a complete x86/x64/ARM64 assembler, production-grade disassembler,
-full decompiler, debugger, process-memory editing, packet capture, .NET metadata reader,
-or a trained AI model. Those are planned modules, not falsely advertised as finished.
+### Загрузка и базовый анализ
+- Чтение файлов и безопасные операции с бинарными диапазонами.
+- Парсинг и форматирование hex-данных.
+- Определение поддерживаемого формата файла.
+- Оценка энтропии по распределению байтов.
+- Поиск кандидатов на точки входа функций.
+- CLI для основных операций с файлами.
 
-## Build (Windows)
+### Форматы исполняемых файлов
+- **PE32 / PE32+**: заголовки, секции, импорты и связанные структуры.
+- **PE x64 unwind**: разбор exception directory, RUNTIME_FUNCTION, UNWIND_INFO, распространённых UWOP_*, chained records и handler metadata.
+- **ELF32 / ELF64**: обе endian-модели, заголовки, program/section headers, имена секций, PT_INTERP, DT_NEEDED и extended numbering.
+- **Mach-O thin**: 32/64-bit заголовки, load commands, segments/sections, dylib references и LC_MAIN.
+- **.NET / CLR metadata foundation**: CLR directory/header, BSJB metadata root, streams и IDs/row counts таблиц.
 
-Install CMake and a C++20 compiler (Visual Studio 2022 or recent MinGW-w64).
+Поддержка форматов имеет ограничения. Например, Mach-O Universal/Fat, полное декодирование ELF symbol/relocation tables и декодирование строк таблиц CLR пока не реализованы.
 
-```powershell
-cmake -S . -B build
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
-```
+### Анализ кода
+- Ограниченный встроенный x86/x64 decoder и encoder для базовых операций.
+- Использование Zydis 4.1.1 для декодирования инструкций в x64 PE call-site analysis.
+- Анализ PE x64 функций с использованием .pdata и UNWIND_INFO.
+- Построение best-effort call graph по распознанным прямым и поддерживаемым косвенным вызовам.
 
-Run:
-```powershell
-.\build\Release\dll_lulz.exe info .\sample.exe
-.\build\Release\dll_lulz.exe hex .\sample.dll
-.\build\Release\dll_lulz.exe disasm 4889D84883C001C3
-.\build\Release\dll_lulz.exe pe .\sample.exe
-.\build\Release\dll_lulz.exe unwind .\sample.exe
-.\build\Release\dll_lulz.exe unwind .\sample.exe --json
-```
+Call graph не является полным CFG: косвенные переходы, исключительные рёбра и неподдерживаемые формы адресации могут остаться неразрешёнными. Это не полноценный дизассемблер или декомпилятор.
 
-For single-config generators (e.g. MinGW Makefiles), executable is usually `build/dll_lulz.exe`.
+### AI и нейросеть
+- AI configuration/context и извлечение признаков импортов, функций и декодированных инструкций.
+- Лёгкая CPU feed-forward neural network (MLP): configurable topology, ReLU/tanh/sigmoid/linear activations, inference и SGD training.
+- Сохранение и загрузка модели в версионированном little-endian формате с проверками размеров и параметров.
+- JSON presets в каталоге config/ и отдельный opt-in microbenchmark в benchmarks/.
 
-## Safety
+**Важно:** JSON presets пока не загружаются автоматически в AIConfig. Наличие MLP не означает, что приложение содержит обученный malware detector. Текущий AI pipeline — экспериментальная основа; качество обнаружения на реальных файлах не заявляется.
 
-Treat unknown binaries as untrusted data. This program parses files without executing them.
-Use isolated test environments for dynamic analysis. Keep original samples immutable and
-record their SHA-256 with a trusted hashing utility.
+### Дополнительные foundation-модули
+В src/ также находятся начальные реализации:
+- bounded PackBits-like RLE compression;
+- byte-frequency, Shannon entropy и простые crypto-oriented heuristics;
+- in-memory analysis metadata store;
+- debugger state/breakpoint/event model без подключения к процессу;
+- небольшое промежуточное представление (IR) и генератор псевдокода;
+- byte-span binary diff;
+- модели memory regions, network indicators, plugin registry, reports, CFG, scripting и workspace UI.
 
-## Roadmap
+Эти компоненты не следует считать полноценными production-подсистемами. Например, database foundation пока не является persistent SQLite storage, debugger model не управляет ОС-процессом, а IR emitter не декомпилирует произвольный машинный код.
 
-1. Expand instruction coverage and add architecture backends.
-2. Add CFG and function analysis.
-3. Add robust PE/ELF/Mach-O and .NET readers.
-4. Add debugger adapters and safe dump inspection.
-5. Add network capture-file parsing.
-6. Build a compact, locally trained classifier with measured accuracy and resource budgets.
+## Структура проекта
 
+| Каталог | Назначение |
+|---|---|
+| app/ | CLI application |
+| include/, src/core/ | Общие типы, результаты и инфраструктура |
+| src/formats/ | PE, ELF, Mach-O и .NET/CLR parsers |
+| src/analysis/ | Анализ бинарных данных и функций |
+| src/asm/ | Низкоуровневые x86 helpers |
+| src/ai/ | AI pipeline, features и neural network |
+| src/*/ | Дополнительные subsystem foundations |
+| tests/ | Unit и subsystem tests |
+| datasets/ | Небольшие starter datasets |
+| config/ | AI JSON presets и schema |
+| benchmarks/ | Opt-in neural microbenchmark |
 
-## Function Analysis Engine (v0.5)
+## Сборка
 
-The x64 PE analyzer combines `.pdata` `RUNTIME_FUNCTION` ranges with parsed `UNWIND_INFO`, saved GPR/XMM registers, stack-frame sizes, and bounded `CHAININFO` traversal. It also parses PE imports and builds a call graph from x64 instructions decoded by Zydis, including relative CALL/JMP and RIP-relative IAT forms.
+Требования:
+- CMake 3.20 или новее;
+- компилятор с поддержкой C++20 (Visual Studio 2022 / MSVC или совместимый GCC/Clang);
+- доступ к GitHub во время первой конфигурации CMake для получения Zydis v4.1.1 через FetchContent.
 
-```powershell
-.\build\Release\dll_lulz.exe analyze "C:\Windows\System32\notepad.exe"
-.\build\Release\dll_lulz.exe analyze "C:\Windows\System32\notepad.exe" --json report.json
-```
+### Windows (Visual Studio 2022)
 
-Call-site discovery uses Zydis instruction boundaries, avoiding opcode-like bytes inside immediates and displacements. Indirect targets outside supported RIP-relative IAT slots remain unresolved. The module currently targets x64 PE32+ images with `.pdata`; other architectures and complete instruction decoding are future work.
+    cmake -S . -B build
+    cmake --build build --config Release
+    ctest --test-dir build -C Release --output-on-failure
 
+Запуск CLI:
 
-## Validation status
+    .\build\Release\dll_lulz.exe info .\sample.exe
+    .\build\Release\dll_lulz.exe hex .\sample.dll
+    .\build\Release\dll_lulz.exe disasm 4889D84883C001C3
+    .\build\Release\dll_lulz.exe pe .\sample.exe
+    .\build\Release\dll_lulz.exe unwind .\sample.exe
+    .\build\Release\dll_lulz.exe unwind .\sample.exe --json
+    .\build\Release\dll_lulz.exe analyze .\sample.exe
 
-The x64 PE call-site scan uses Zydis decoding but remains a best-effort control-flow graph: indirect targets and exceptional control-flow edges may remain unresolved. AI feature extraction counts instruction-derived metrics only for functions explicitly marked as decoded; metadata summaries are not instructions. The current AI engine is a rules/statistics scaffold and does not run a trained neural model.
+Для single-config генераторов (например, MinGW Makefiles) исполняемый файл обычно находится в build/dll_lulz.exe.
 
-Release test builds explicitly keep assertions enabled. The repository CI workflow builds and runs tests on Windows and Ubuntu.
+### Отдельный neural benchmark
+
+Бенчмарки отключены по умолчанию:
+
+    cmake -S . -B build-bench -DDLL_LULZ_BUILD_TESTS=OFF -DDLL_LULZ_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
+    cmake --build build-bench --config Release --target lulz_neural_benchmark
+    .\build-bench\Release\lulz_neural_benchmark.exe
+
+Бенчмарк измеряет время обучения и inference на синтетических данных. Он не измеряет качество malware detection, полный pipeline анализа бинарных файлов или производительность GPU.
+
+## Тесты и datasets
+
+Тестовые цели:
+- lulz_tests;
+- lulz_neural_tests;
+- lulz_subsystem_tests.
+
+Запуск всех зарегистрированных тестов выполняется через ctest, как показано выше.
+
+Данные в datasets/functions/ и datasets/assembly/ — небольшие hand-authored synthetic examples. Они предназначены для проверки формата и экспериментов с обработкой данных, а не для оценки точности классификатора. Не используйте их как доказательство качества обнаружения вредоносного ПО.
+
+## Безопасность
+
+- Рассматривайте неизвестные бинарные файлы как недоверенные данные.
+- Статические парсеры проекта не должны запускать анализируемый файл.
+- Сохраняйте оригиналы образцов неизменными и работайте с копиями.
+- Для динамического анализа используйте изолированную виртуальную машину.
+- Не помещайте API keys, пароли и другие секреты в JSON-конфиги или репозиторий.
+
+## Текущее состояние и дальнейшая работа
+
+Проект развивается поэтапно. Основные направления:
+1. Расширение тестов и fuzzing для парсеров форматов.
+2. Дальнейшая реализация и интеграция subsystem foundations.
+3. JSON config loader и CLI selection для AI presets.
+4. Подготовка репрезентативных датасетов и воспроизводимого training/evaluation pipeline.
+5. Расширение декодирования, CFG и анализа функций.
+6. Реализация persistent storage, plugin loading и OS debugger adapters.
+
+См. README в соответствующих каталогах для точного описания API и ограничений каждого модуля.
+
+## License
+
+Проверьте файлы лицензий и зависимости проекта перед распространением сборок. Не добавляйте сторонние компоненты без соответствующего license notice.
