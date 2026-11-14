@@ -150,4 +150,4 @@ A local neural checkpoint can be selected with
 `dll_lulz.exe ai <file> --model <checkpoint.lznn>`. The model must match the
 numeric feature-vector schema and order of this build. No pretrained malware
 classifier is shipped; a forward pass is reported as inference only, not as a
-malware verdict. The OpenAI provider uses Windows WinHTTP and reads OPENAI_API_KEY from the environment. The --openai CLI option sends extracted feature metadata, not executable bytes.
+malware verdict. The OpenAI provider uses Windows WinHTTP and reads OPENAI_API_KEY from the environment. The --openai CLI option sends extracted feature metadata, not executable bytes. The DeepSeek provider uses the compatible Chat Completions API, reads DEEPSEEK_API_KEY from the environment, and is selected with --deepseek (default model: deepseek-flash). It also sends extracted feature metadata only, not executable bytes.
