@@ -19,7 +19,7 @@ bool AIConfig::validate(std::string* error) const {
         return false;
     }
 
-    if (provider != AIProvider::None && modelName.empty()) {
+    if (provider != AIProvider::None && provider != AIProvider::Local && provider != AIProvider::OpenAI) {\n        if (error) *error = "Invalid AI provider";\n        return false;\n    }\n\n    if (provider != AIProvider::None && modelName.empty()) {
         if (error) *error = "Model name is required";
         return false;
     }

@@ -1,37 +1,14 @@
-# AI Analysis 0.1.0
+# AI Analysis 0.2.0
 
-AI Analysis is the analysis orchestration layer of DLL_LULZ_AI.
+AI Analysis orchestrates AI Core and preserves its structured output.
 
-## Responsibilities
+## Pipeline
+AnalysisInput -> AIAnalyzer -> AIEngine -> AnalysisResult -> AnalysisReport
 
-- Accept analysis context from existing modules.
-- Forward context to AI Core.
-- Collect analysis results.
-- Store findings and errors.
-- Generate unified text reports.
+## Current behavior
+- Validates and forwards AIContext.
+- Carries the extracted FeatureVector through AnalysisResult.
+- Collects static heuristic findings and errors.
+- Generates text reports including feature names and values.
 
-## Architecture
-
-AnalysisInput
-    |
-    v
-AIAnalyzer
-    |
-    v
-AIEngine
-    |
-    v
-AnalysisResult
-    |
-    v
-AnalysisReport
-
-## Current status
-
-Version: 0.1.0
-
-- AI Core integration: implemented
-- Analysis orchestration: implemented
-- Result collection: implemented
-- Text report generation: implemented
-- Neural inference: depends on configured AI provider
+No trained-model inference or external AI provider request is performed by this layer.

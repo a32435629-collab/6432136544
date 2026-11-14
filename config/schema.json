@@ -11,7 +11,7 @@
     "provider": { "type": "string", "enum": ["none", "local", "openai"], "default": "none" },
     "modelName": { "type": "string", "minLength": 1, "default": "none" },
     "endpoint": { "type": "string", "default": "" },
-    "maxFunctions": { "type": "integer", "minimum": 1, "maximum": 100000, "default": 1000 },
+    "maxFunctions": { "type": "integer", "minimum": 1, "maximum": 100000, "default": 5000 },
     "maxImports": { "type": "integer", "minimum": 1, "maximum": 500000, "default": 5000 },
     "maxInstructions": { "type": "integer", "minimum": 1, "maximum": 10000000, "default": 50000 }
   }
