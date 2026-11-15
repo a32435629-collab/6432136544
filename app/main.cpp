@@ -111,6 +111,12 @@ static int runAI(
                   << functionAnalysis.error() << '\n';
         return 2;
     }
+    for (const auto& warning : functionAnalysis.value().warnings)
+        std::cerr << "[PE analysis warning] " << warning << '\n';
+
+    auto extendedPE = lulz::parsePEExtended(bytes);
+    if (!extendedPE)
+        std::cerr << "[PE metadata warning] " << extendedPE.error() << '\n';
 
     // ======================================
     // Build Analysis Input
@@ -217,7 +223,17 @@ static int runAI(
         << "Functions: " << context.functions.size() << '\n'
         << "Imports: " << context.imports.size() << '\n'
         << "Extracted features: " << features.size()
-        << "\n\n";
+        << "\n";
+    if (extendedPE) {
+        std::cout << "PE exports: " << extendedPE.value().exports.size()
+                  << "\nPE base relocations: " << extendedPE.value().relocations.size()
+                  << "\nPE debug entries: " << extendedPE.value().debugEntries.size()
+                  << "\nPE TLS callbacks: " << extendedPE.value().tls.callbackRvas.size()
+                  << "\n";
+        for (const auto& warning : extendedPE.value().warnings)
+            std::cerr << "[PE metadata warning] " << warning << '\n';
+    }
+    std::cout << '\n';
 
     // ======================================
     // Feature Report
