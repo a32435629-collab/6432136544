@@ -33,6 +33,7 @@ struct FunctionAnalysis {
     std::size_t unresolvedCalls{};
     std::size_t decodedInstructions{};
     std::size_t undecodableBytes{};
+    std::vector<std::string> warnings;
 };
 Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes, const PEInfo& pe);
 std::string functionAnalysisToJson(const FunctionAnalysis& analysis, const PEInfo& pe);
