@@ -10,20 +10,36 @@ This folder contains the first, payment-free licensing prototype for DLL-LULZ-AI
 
 The MVP intentionally does not collect payments, passwords, or personal data. Create test licenses manually in D1 until the validation flow is tested. Never commit real license keys, API tokens, or Cloudflare credentials.
 
-## Deploy outline
+## Deploy the API
 
-1. Create a Cloudflare D1 database named `dll-lulz-licenses`.
-2. Apply `worker/schema.sql` to that database.
-3. Copy the database ID into `worker/wrangler.toml`.
-4. From the `web/worker` directory, run `npx wrangler deploy`.
-5. Deploy `web/site` as a Cloudflare Pages static site.
-6. Set `API_BASE_URL` in `web/site/config.js` to the deployed Worker URL.
+1. Create a Cloudflare account and install Node.js LTS locally.
+2. Install Wrangler: `npm install -g wrangler`.
+3. Authenticate: `wrangler login`.
+4. Create the D1 database: `wrangler d1 create dll-lulz-licenses`.
+5. Copy the returned database ID into `worker/wrangler.toml`, replacing `REPLACE_WITH_YOUR_D1_DATABASE_ID`.
+6. From this directory, run:
+   ```powershell
+   cd worker
+   wrangler d1 execute dll-lulz-licenses --remote --file schema.sql
+   wrangler secret put ALLOWED_ORIGIN
+   ```
+   When prompted for `ALLOWED_ORIGIN`, enter the exact HTTPS origin of the deployed Pages site, for example `https://dll-lulz-ai.pages.dev` (no trailing slash).
+7. Deploy the Worker: `wrangler deploy`.
+8. Test `https://<worker-name>.<account-subdomain>.workers.dev/api/health`.
 
-Cloudflare account authentication and deployment must be completed by the repository owner. Free-tier limits and availability can change; this is a prototype, not a production SLA.
+## Deploy the website
+
+1. In Cloudflare Pages, create a project connected to this GitHub repository.
+2. Set the project root directory to `web/site`.
+3. Use no build command; set the output directory to `/` (or leave the static root setting as recommended by Pages).
+4. After Pages provides its HTTPS URL, open `site/config.js` and replace `https://YOUR-WORKER-URL` with the deployed Worker URL.
+5. Commit the config change and redeploy Pages.
+
+If the Pages hostname changes, update the Worker secret `ALLOWED_ORIGIN` to the new exact origin.
 
 ## Test license creation
 
-Generate a random key locally, calculate its SHA-256 hex digest, then insert only the digest into D1:
+Generate a random key locally and calculate its SHA-256 hex digest, then insert only the digest into D1:
 
 ```sql
 INSERT INTO licenses (key_hash, status, expires_at, max_devices)
