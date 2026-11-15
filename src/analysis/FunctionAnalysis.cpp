@@ -212,7 +212,7 @@ std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
         if(!directory.present()) continue;
         if(!firstDirectory) o<<", ";
         firstDirectory=false;
-        o<<"{\"index\": "<<i<<", \"rva\": \""<<hex32(directory.rva)<<"\", \"size\": "<<directory.size<<"}";
+        o<<"{\"index\": "<<i<<", \"address_kind\": \""<<(directory.usesFileOffset?"file_offset":"rva")<<"\", \"address\": \""<<hex32(directory.rva)<<"\", \"size\": "<<directory.size<<"}";
     }
     o<<"], \"exports\": [";
     for(std::size_t i=0;i<a.peMetadata.exports.size();++i) {
@@ -220,6 +220,12 @@ std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
         o<<"{\"name\": \""<<escapeJson(item.name)<<"\", \"ordinal\": "<<item.ordinal
          <<", \"rva\": \""<<hex32(item.rva)<<"\", \"forwarded\": "<<(item.forwarded?"true":"false")
          <<", \"forwarder\": \""<<escapeJson(item.forwarder)<<"\"}";
+    }
+    o<<"], \"certificates\": [";
+    for(std::size_t i=0;i<a.peMetadata.certificates.size();++i) {
+        const auto& item=a.peMetadata.certificates[i]; if(i)o<<", ";
+        o<<"{\"length\": "<<item.length<<", \"revision\": "<<item.revision
+         <<", \"certificate_type\": "<<item.certificateType<<", \"file_offset\": "<<item.fileOffset<<"}";
     }
     o<<"], \"base_relocations\": [";
     for(std::size_t i=0;i<a.peMetadata.relocations.size();++i) {
