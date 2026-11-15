@@ -7,7 +7,7 @@
 #include <vector>
 namespace lulz::ai::neural {
 enum class Activation : std::uint8_t { Linear=0, Relu=1, Tanh=2, Sigmoid=3 };
-struct TrainingOptions { std::size_t epochs=100; double learningRate=0.01; bool shuffle=true; std::uint32_t seed=0x4c554c5a; };
+// Deterministic SGD controls. A zero gradientClipNorm disables clipping.\nstruct TrainingOptions { std::size_t epochs=100; double learningRate=0.01; bool shuffle=true; std::uint32_t seed=0x4c554c5a; double momentum=0.0; double weightDecay=0.0; double gradientClipNorm=0.0; };
 struct TrainingReport { std::size_t epochsCompleted=0; double initialLoss=0.0; double finalLoss=0.0; };
 class NeuralNetwork {
 public:
