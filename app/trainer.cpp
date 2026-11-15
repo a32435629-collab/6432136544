@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <utility>
 
 namespace {
 using lulz::ai::neural::Activation;
