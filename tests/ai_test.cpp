@@ -68,6 +68,11 @@ int main() {
     const auto report = analysis::AnalysisReport::toText(analyzed);
     assert(report.find("imports.remote_memory") != std::string::npos);
 
+    AIConfig groqConfig;
+    groqConfig.provider = AIProvider::Groq;
+    groqConfig.modelName = "openai/gpt-oss-20b";
+    assert(groqConfig.validate());
+
     AIConfig limited;
     limited.maxFunctions = 1;
     AIEngine limitedEngine(limited);
