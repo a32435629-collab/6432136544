@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LULZ Builder AI project description",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["project", "files"],
+  "properties": {
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2048,
+      "items": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 240},
+          "content": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
