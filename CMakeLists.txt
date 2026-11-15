@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(DLL_LULZ_AI VERSION 0.7.0 LANGUAGES CXX)
+project(DLL_LULZ_AI VERSION 0.8.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,6 +56,8 @@ add_library(lulz_core
     src/ai/features/FunctionFeatures.cpp
     src/ai/features/InstructionFeatures.cpp
     src/ai/neural/NeuralNetwork.cpp
+    src/ai/builder/Json.cpp
+    src/ai/builder/BuilderAI.cpp
     src/ai/providers/OpenAIClient.cpp
     src/ai/providers/DeepSeekClient.cpp
 )
@@ -82,6 +84,9 @@ target_link_libraries(lulz_trainer PRIVATE lulz_core)
 add_executable(lulz_dataset app/dataset_builder.cpp)
 target_link_libraries(lulz_dataset PRIVATE lulz_core)
 
+add_executable(lulz_builder app/builder.cpp)
+target_link_libraries(lulz_builder PRIVATE lulz_core)
+
 if(DLL_LULZ_BUILD_TESTS)
     enable_testing()
     add_executable(lulz_tests tests/test_main.cpp)
@@ -92,6 +97,10 @@ if(DLL_LULZ_BUILD_TESTS)
         target_compile_options(lulz_tests PRIVATE -UNDEBUG)
     endif()
     add_test(NAME lulz_tests COMMAND lulz_tests)
+
+    add_executable(lulz_builder_tests tests/builder_test.cpp)
+    target_link_libraries(lulz_builder_tests PRIVATE lulz_core)
+    add_test(NAME lulz_builder_tests COMMAND lulz_builder_tests)
 
     add_executable(lulz_neural_tests tests/neural_test.cpp)
     target_link_libraries(lulz_neural_tests PRIVATE lulz_core)
@@ -127,6 +136,7 @@ endif()
 
 message(STATUS "================================")
 message(STATUS " DLL_LULZ_AI ${PROJECT_VERSION}")
+message(STATUS " AI Architecture: Dual AI (Analyzer + Builder)")
 message(STATUS " AI Core: 0.7.0")
 message(STATUS " AI Analysis: 0.7.0")
 message(STATUS " AI Features: 0.7.0")
