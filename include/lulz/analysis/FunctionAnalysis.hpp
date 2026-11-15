@@ -1,6 +1,7 @@
 #pragma once
 #include "lulz/core/Result.hpp"
 #include "lulz/formats/pe/PEParser.hpp"
+#include "lulz/formats/pe/PEExtendedParser.hpp"
 #include "lulz/formats/pe/UnwindInfo.hpp"
 #include <cstdint>
 #include <span>
@@ -28,6 +29,7 @@ struct AnalyzedFunction {
     std::vector<FunctionCall> calls;
 };
 struct FunctionAnalysis {
+    PEExtendedInfo peMetadata;
     std::vector<AnalyzedFunction> functions;
     std::vector<ImportSymbol> imports;
     std::size_t unresolvedCalls{};
