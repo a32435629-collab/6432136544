@@ -26,7 +26,7 @@ bool AIEngine::setConfig(const AIConfig& config) {
 }
 const AIConfig& AIEngine::getConfig() const { return config_; }
 bool AIEngine::isEnabled() const { return config_.enabled; }
-std::string AIEngine::version() const { return "DLL_LULZ_AI Engine 0.6.0"; }
+std::string AIEngine::version() const { return "DLL_LULZ_AI Engine 0.7.0"; }
 
 AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
     AIAnalysisResult result;
