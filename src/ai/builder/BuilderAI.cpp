@@ -119,10 +119,12 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
     const auto* exportsValue = metadata ? metadata->get("exports") : nullptr;
     const auto* relocationsValue = metadata ? metadata->get("base_relocations") : nullptr;
     const auto* debugValue = metadata ? metadata->get("debug_entries") : nullptr;
+    const auto* certificatesValue = metadata ? metadata->get("certificates") : nullptr;
     const auto* callbacksValue = tls ? tls->get("callbacks") : nullptr;
     const auto* exports = exportsValue ? exportsValue->array() : nullptr;
     const auto* relocations = relocationsValue ? relocationsValue->array() : nullptr;
     const auto* debugEntries = debugValue ? debugValue->array() : nullptr;
+    const auto* certificates = certificatesValue ? certificatesValue->array() : nullptr;
     const auto* callbacks = callbacksValue ? callbacksValue->array() : nullptr;
 
     std::ostringstream header;
@@ -134,12 +136,14 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
            << "struct Export { std::string name; std::uint32_t ordinal; std::string rva; bool forwarded; std::string forwarder; };\\n"
            << "struct Relocation { std::string pageRva; std::string targetRva; std::uint8_t type; };\\n"
            << "struct DebugEntry { std::uint32_t timestamp; std::uint32_t type; std::uint32_t size; std::uint32_t rawPointer; };\\n"
+           << "struct Certificate { std::uint32_t length; std::uint16_t revision; std::uint16_t type; std::uint32_t fileOffset; };\\n"
            << "extern const std::string imageBase;\\n"
            << "extern const std::vector<Import> imports;\\n"
            << "extern const std::vector<Function> functions;\\n"
            << "extern const std::vector<Export> exports;\\n"
            << "extern const std::vector<Relocation> relocations;\\n"
            << "extern const std::vector<DebugEntry> debugEntries;\\n"
+           << "extern const std::vector<Certificate> certificates;\\n"
            << "extern const std::vector<std::string> tlsCallbacks;\\n"
            << "} // namespace lulz_generated\\n";
 
@@ -205,7 +209,15 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
                << numberLiteral(item.get("size")) << "U, "
                << numberLiteral(item.get("raw_pointer")) << "U},\\n";
     }
-    source << "};\\nconst std::vector<std::string> tlsCallbacks = {";
+    source << "};\nconst std::vector<Certificate> certificates = {\n";
+    if (certificates) for (const auto& item : *certificates) {
+        if (!item.isObject()) continue;
+        source << "    {" << numberLiteral(item.get("length")) << "U, "
+               << numberLiteral(item.get("revision")) << "U, "
+               << numberLiteral(item.get("certificate_type")) << "U, "
+               << numberLiteral(item.get("file_offset")) << "U},\n";
+    }
+    source << "};\nconst std::vector<std::string> tlsCallbacks = {";
     if (callbacks) for (const auto& item : *callbacks)
         source << "\\\"" << cppEscape(scalarText(&item)) << "\\",";
     source << "};\\n} // namespace lulz_generated\\n";
@@ -219,6 +231,7 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
         "    std::cout << \"Functions: \" << lulz_generated::functions.size() << \"\\n\";\\n"
         "    std::cout << \"Exports: \" << lulz_generated::exports.size() << \"\\n\";\n"
         "    std::cout << \"Relocations: \" << lulz_generated::relocations.size() << \"\\n\";\n"
+        "    std::cout << \"Certificates: \" << lulz_generated::certificates.size() << \"\\n\";\n"
         "    std::cout << \"Debug entries: \" << lulz_generated::debugEntries.size() << \"\\n\";\n"
         "    std::cout << \"TLS callbacks: \" << lulz_generated::tlsCallbacks.size() << \"\\n\";\n"
         "    for (const auto& function : lulz_generated::functions)\\n"
