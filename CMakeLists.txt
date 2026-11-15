@@ -79,6 +79,9 @@ target_link_libraries(dll_lulz PRIVATE lulz_core)
 add_executable(lulz_trainer app/trainer.cpp)
 target_link_libraries(lulz_trainer PRIVATE lulz_core)
 
+add_executable(lulz_dataset app/dataset_builder.cpp)
+target_link_libraries(lulz_dataset PRIVATE lulz_core)
+
 if(DLL_LULZ_BUILD_TESTS)
     enable_testing()
     add_executable(lulz_tests tests/test_main.cpp)
