@@ -7,6 +7,7 @@
 
 #include "lulz/formats/FormatDetector.hpp"
 #include "lulz/formats/pe/PEParser.hpp"
+#include "lulz/formats/pe/PEExtendedParser.hpp"
 #include "lulz/formats/pe/UnwindInfo.hpp"
 
 #include "lulz/hex/HexParser.hpp"
@@ -36,11 +37,12 @@
 
 static void usage() {
     std::cout
-        << "DLL LULZ AI v0.7.0\n"
+        << "DLL LULZ AI v0.8.0\n"
         << "Commands:\n"
         << "  info <file>       identify format and entropy\n"
         << "  hex <file>        show first 256 bytes\n"
         << "  pe <file>         parse PE headers and sections\n"
+        << "  pe-deep <file>    inspect PE directories, exports, relocations, TLS and debug data\n"
         << "  disasm <hex>      decode supported x86-64 subset\n"
         << "  functions <file> find x64 functions\n"
         << "  unwind <file> [--json] parse x64 UNWIND_INFO\n"
@@ -257,10 +259,10 @@ static int runAI(
     // ======================================
 
     std::cout
-        << "\nAI Core: 0.7.0\n"
-        << "AI Analysis: 0.7.0\n"
-        << "AI Features: 0.7.0\n"
-        << "AI Neural: 0.7.0\n"
+        << "\nAI Core: 0.8.0\n"
+        << "AI Analysis: 0.8.0\n"
+        << "AI Features: 0.8.0\n"
+        << "AI Neural: 0.8.0\n"
         << "Neural inference: " << (result.summary.find("Neural inference: performed") != std::string::npos ? "Performed" : "Not performed") << "\n"
         << "Instruction disassembly: " << context.instructionCount() << " instructions\n"
         << "====================================\n";
@@ -429,6 +431,42 @@ int main(int argc, char** argv) {
                 << '\n';
         }
 
+        return 0;
+    }
+
+    // ======================================
+    // EXTENDED PE INSPECTION
+    // ======================================
+
+    if (cmd == "pe-deep") {
+        auto extended = lulz::parsePEExtended(bytes);
+        if (!extended) {
+            std::cerr << "Extended PE parse error: " << extended.error() << '\n';
+            return 2;
+        }
+        const auto& info = extended.value();
+        static const char* directoryNames[] = {
+            "EXPORT", "IMPORT", "RESOURCE", "EXCEPTION", "SECURITY", "BASERELOC",
+            "DEBUG", "ARCHITECTURE", "GLOBALPTR", "TLS", "LOAD_CONFIG", "BOUND_IMPORT",
+            "IAT", "DELAY_IMPORT", "CLR", "RESERVED"
+        };
+        std::cout << "PE" << (info.image.is64 ? "32+" : "32")
+                  << " imageSize=" << info.sizeOfImage
+                  << " headersSize=" << info.sizeOfHeaders
+                  << " subsystem=" << info.subsystem
+                  << " dllFlags=" << hexValue(info.dllCharacteristics) << '\n';
+        for (std::size_t i = 0; i < info.directories.size(); ++i) {
+            const auto& directory = info.directories[i];
+            if (directory.present())
+                std::cout << "  " << directoryNames[i] << " RVA=" << hexValue(directory.rva)
+                          << " size=" << directory.size << '\n';
+        }
+        std::cout << "Exports: " << info.exports.size()
+                  << "\nBase relocations: " << info.relocations.size()
+                  << "\nDebug entries: " << info.debugEntries.size()
+                  << "\nTLS callbacks: " << info.tls.callbackRvas.size() << '\n';
+        for (const auto& warning : info.warnings)
+            std::cout << "[WARN] " << warning << '\n';
         return 0;
     }
 
