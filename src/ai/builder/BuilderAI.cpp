@@ -114,15 +114,33 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
     const auto* functions = functionsValue ? functionsValue->array() : nullptr;
     if (!imports || !functions) return {};
 
+    const JsonValue* metadata = root.get("pe_metadata");
+    const JsonValue* tls = metadata ? metadata->get("tls") : nullptr;
+    const auto* exportsValue = metadata ? metadata->get("exports") : nullptr;
+    const auto* relocationsValue = metadata ? metadata->get("base_relocations") : nullptr;
+    const auto* debugValue = metadata ? metadata->get("debug_entries") : nullptr;
+    const auto* callbacksValue = tls ? tls->get("callbacks") : nullptr;
+    const auto* exports = exportsValue ? exportsValue->array() : nullptr;
+    const auto* relocations = relocationsValue ? relocationsValue->array() : nullptr;
+    const auto* debugEntries = debugValue ? debugValue->array() : nullptr;
+    const auto* callbacks = callbacksValue ? callbacksValue->array() : nullptr;
+
     std::ostringstream header;
     header << "#pragma once\\n\\n#include <cstdint>\\n#include <string>\\n#include <vector>\\n\\n"
            << "namespace lulz_generated {\\n"
            << "struct Import { std::string module; std::string name; std::string iatRva; };\\n"
            << "struct Call { std::string instructionRva; std::string kind; std::string targetRva; std::string target; bool resolved; };\\n"
            << "struct Function { std::string beginRva; std::string endRva; std::string unwindRva; std::uint64_t size; std::uint32_t stackConsumed; std::vector<Call> calls; };\\n"
+           << "struct Export { std::string name; std::uint32_t ordinal; std::string rva; bool forwarded; std::string forwarder; };\\n"
+           << "struct Relocation { std::string pageRva; std::string targetRva; std::uint8_t type; };\\n"
+           << "struct DebugEntry { std::uint32_t timestamp; std::uint32_t type; std::uint32_t size; std::uint32_t rawPointer; };\\n"
            << "extern const std::string imageBase;\\n"
            << "extern const std::vector<Import> imports;\\n"
            << "extern const std::vector<Function> functions;\\n"
+           << "extern const std::vector<Export> exports;\\n"
+           << "extern const std::vector<Relocation> relocations;\\n"
+           << "extern const std::vector<DebugEntry> debugEntries;\\n"
+           << "extern const std::vector<std::string> tlsCallbacks;\\n"
            << "} // namespace lulz_generated\\n";
 
     std::ostringstream source;
@@ -160,6 +178,36 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
         }
         source << "}},\\n";
     }
+    source << "};\\nconst std::vector<Export> exports = {\\n";
+    if (exports) for (const auto& item : *exports) {
+        if (!item.isObject()) continue;
+        const auto* forwarded = item.get("forwarded");
+        const bool isForwarded = forwarded && std::get_if<bool>(&forwarded->value) &&
+            *std::get_if<bool>(&forwarded->value);
+        source << "    {\\"" << cppEscape(scalarText(item.get("name"))) << "\\", "
+               << numberLiteral(item.get("ordinal")) << "U, \\""
+               << cppEscape(scalarText(item.get("rva"))) << "\\", "
+               << (isForwarded ? "true" : "false") << ", \\""
+               << cppEscape(scalarText(item.get("forwarder"))) << "\\"},\\n";
+    }
+    source << "};\\nconst std::vector<Relocation> relocations = {\\n";
+    if (relocations) for (const auto& item : *relocations) {
+        if (!item.isObject()) continue;
+        source << "    {\\"" << cppEscape(scalarText(item.get("page_rva"))) << "\\", \\""
+               << cppEscape(scalarText(item.get("target_rva"))) << "\\", "
+               << numberLiteral(item.get("type")) << "U},\\n";
+    }
+    source << "};\\nconst std::vector<DebugEntry> debugEntries = {\\n";
+    if (debugEntries) for (const auto& item : *debugEntries) {
+        if (!item.isObject()) continue;
+        source << "    {" << numberLiteral(item.get("timestamp")) << "U, "
+               << numberLiteral(item.get("type")) << "U, "
+               << numberLiteral(item.get("size")) << "U, "
+               << numberLiteral(item.get("raw_pointer")) << "U},\\n";
+    }
+    source << "};\\nconst std::vector<std::string> tlsCallbacks = {";
+    if (callbacks) for (const auto& item : *callbacks)
+        source << "\\\"" << cppEscape(scalarText(&item)) << "\\",";
     source << "};\\n} // namespace lulz_generated\\n";
 
     const std::string mainSource =
