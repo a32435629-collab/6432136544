@@ -1,0 +1,55 @@
+#include "ai/builder/BuilderAI.hpp"
+#include "ai/builder/Json.hpp"
+
+#include <cassert>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string>
+
+int main() {
+    using namespace lulz::ai::builder;
+
+    const auto valid = JsonParser(R"({"project":"TestApp","files":[{"path":"src/main.cpp","content":"int main(){return 0;}"}]})").parse();
+    assert(valid.success);
+    assert(valid.value.get("project") != nullptr);
+
+    assert(!JsonParser(R"({"x":1,"x":2})").parse().success);
+    assert(!JsonParser(R"({"x":[1,2,]})").parse().success);
+    assert(!JsonParser(R"({"x":"unterminated})").parse().success);
+
+    const auto base = std::filesystem::temp_directory_path() / "lulz_builder_ai_test";
+    std::error_code ec;
+    std::filesystem::remove_all(base, ec);
+
+    BuilderOptions options;
+    options.outputDirectory = base;
+
+    const std::string project =
+        R"({"project":"GeneratedSample","files":[)"
+        R"({"path":"src/main.cpp","content":"#include <iostream>\nint main(){std::cout << \"ok\";}\n"},)"
+        R"({"path":"CMakeLists.txt","content":"cmake_minimum_required(VERSION 3.20)\nproject(GeneratedSample)\n"})"
+        R"(]})";
+
+    const auto report = BuilderAI{}.buildFromJson(project, options);
+    assert(report.success);
+    assert(report.createdFiles.size() == 2);
+    assert(std::filesystem::exists(base / "GeneratedSample" / "src" / "main.cpp"));
+    assert(std::filesystem::exists(base / "GeneratedSample" / "CMakeLists.txt"));
+
+    const std::string traversal =
+        R"({"project":"BadProject","files":[{"path":"../outside.txt","content":"bad"}]})";
+    const auto rejected = BuilderAI{}.buildFromJson(traversal, options);
+    assert(!rejected.success);
+
+    const auto duplicate =
+        R"({"project":"BadProject","files":[{"path":"a.txt","content":"1"},{"path":"a.txt","content":"2"}]})";
+    assert(!BuilderAI{}.buildFromJson(duplicate, options).success);
+
+    const auto noOverwrite = BuilderAI{}.buildFromJson(project, options);
+    assert(!noOverwrite.success);
+
+    std::filesystem::remove_all(base, ec);
+    std::cout << "Builder AI tests passed\n";
+    return 0;
+}
