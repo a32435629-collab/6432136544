@@ -62,9 +62,12 @@ AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
             }
         }
     } else if (config_.provider == AIProvider::OpenAI ||
-               config_.provider == AIProvider::DeepSeek) {
+               config_.provider == AIProvider::DeepSeek ||
+               config_.provider == AIProvider::Groq) {
         const bool useDeepSeek = config_.provider == AIProvider::DeepSeek;
-        const char* key = std::getenv(useDeepSeek ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY");
+        const bool useGroq = config_.provider == AIProvider::Groq;
+        const char* key = std::getenv(useDeepSeek ? "DEEPSEEK_API_KEY" :
+                                      (useGroq ? "GROQ_API_KEY" : "OPENAI_API_KEY"));
         std::ostringstream prompt;
         prompt << "Review these static PE analysis features. Explain noteworthy indicators, limitations, and benign alternatives. Do not issue a definitive malware verdict.\n";
         for (const auto& feature : result.features.values) {
@@ -74,11 +77,13 @@ AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
             prompt << '\n';
         }
         const std::string endpoint = config_.endpoint.empty()
-            ? (useDeepSeek ? "https://api.deepseek.com/chat/completions"
-                           : "https://api.openai.com/v1/chat/completions")
+            ? (useDeepSeek ? "https://api.deepseek.com/chat/completions" :
+               (useGroq ? "https://api.groq.com/openai/v1/chat/completions"
+                        : "https://api.openai.com/v1/chat/completions"))
             : config_.endpoint;
         const std::string model = config_.modelName.empty()
-            ? (useDeepSeek ? "deepseek-flash" : "gpt-4o-mini")
+            ? (useDeepSeek ? "deepseek-flash" :
+               (useGroq ? "openai/gpt-oss-20b" : "gpt-4o-mini"))
             : config_.modelName;
         std::string response;
         std::string providerError;
@@ -110,6 +115,7 @@ AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
         case AIProvider::Local: report << "Local checkpoint"; break;
         case AIProvider::OpenAI: report << (result.providerConnected ? "OpenAI (connected)" : "OpenAI (not connected)"); break;
         case AIProvider::DeepSeek: report << (result.providerConnected ? "DeepSeek (connected)" : "DeepSeek (not connected)"); break;
+        case AIProvider::Groq: report << (result.providerConnected ? "Groq (connected)" : "Groq (not connected)"); break;
     }
     report << '\n';
     if (!config_.modelName.empty()) report << "Model: " << config_.modelName << '\n';
@@ -136,7 +142,8 @@ AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
     if (numericFeature(result.features, "instructions.control_flow") > 0.0)
         result.findings.push_back("Decoded control-flow instruction indicators were included in the feature vector.");
     if (result.providerConnected) result.findings.push_back(
-        (config_.provider == AIProvider::DeepSeek ? "DeepSeek" : "OpenAI") +
+        (config_.provider == AIProvider::DeepSeek ? "DeepSeek" :
+         (config_.provider == AIProvider::Groq ? "Groq" : "OpenAI")) +
         std::string(" provider returned an interpretation of the extracted static features."));
     if (result.neuralInferencePerformed)
         result.findings.push_back("A supplied neural checkpoint produced an inference output; interpret it using the model documentation and validation.");
