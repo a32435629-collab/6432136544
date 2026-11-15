@@ -1,4 +1,4 @@
-# DLL LULZ AI v0.6.0
+# DLL LULZ AI v0.7.0 — Neural Evolution
 
 **DLL LULZ AI** — модульный C++20-инструмент для статического анализа исполняемых файлов, исследования бинарных форматов и экспериментов с нейросетевыми моделями.
 
@@ -33,7 +33,7 @@ Call graph не является полным CFG: косвенные перех
 
 ### AI и нейросеть
 - AI configuration/context и извлечение признаков импортов, функций и декодированных инструкций.
-- Лёгкая CPU feed-forward neural network (MLP): configurable topology, ReLU/tanh/sigmoid/linear activations, inference и SGD training.
+- Лёгкая CPU feed-forward neural network (MLP): configurable topology, ReLU/tanh/sigmoid/linear activations, inference и SGD training.\n- Neural Evolution 0.7 foundation: momentum SGD, L2 weight decay, global gradient-norm clipping и проверки non-finite значений во время обучения.
 - Сохранение и загрузка модели в версионированном little-endian формате с проверками размеров и параметров.
 - JSON presets в каталоге config/ и отдельный opt-in microbenchmark в benchmarks/.
 
@@ -138,7 +138,7 @@ Call graph не является полным CFG: косвенные перех
 Проверьте файлы лицензий и зависимости проекта перед распространением сборок. Не добавляйте сторонние компоненты без соответствующего license notice.
 
 
-## Version 0.6.0 — decoded instruction pipeline
+## Version 0.7.0 — Neural Evolution (work in progress)\n\nThe local MLP trainer now supports optional momentum, L2 weight decay and\nglobal per-sample gradient-norm clipping. Defaults preserve the previous SGD\nbehaviour. Training options are range-checked and non-finite gradients,\nparameters and final losses are rejected. This is a training-engine improvement,\nnot evidence of a trained general-purpose assistant or malware classifier.\n\n## Version 0.6.0 — decoded instruction pipeline
 
 The x64 PE function-analysis pass now retains each successfully decoded Zydis
 instruction mnemonic and RVA. The AI context receives those instructions, and
