@@ -45,7 +45,7 @@ static void usage() {
         << "  functions <file> find x64 functions\n"
         << "  unwind <file> [--json] parse x64 UNWIND_INFO\n"
         << "  analyze <file> [--json [output.json]] full analysis\n"
-        << "  ai <file> [--model checkpoint.lznn | --openai | --deepseek] static + AI analysis\n";
+        << "  ai <file> [--model checkpoint.lznn | --openai | --deepseek | --groq] static + AI analysis\n";
 }
 
 // ==========================================
@@ -358,7 +358,7 @@ int main(int argc, char** argv) {
             aiConfig.provider = lulz::ai::AIProvider::Groq;
             aiConfig.modelName = "openai/gpt-oss-20b";
         } else if (argc != 3) {
-            std::cerr << "Usage: dll_lulz ai <file> [--model checkpoint.lznn | --openai | --deepseek]\n";
+            std::cerr << "Usage: dll_lulz ai <file> [--model checkpoint.lznn | --openai | --deepseek | --groq]\n";
             return 2;
         }
         return runAI(bytes, filePath, aiConfig);
