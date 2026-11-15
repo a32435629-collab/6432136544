@@ -43,29 +43,56 @@ const AnalyzedFunction* containing(const std::vector<AnalyzedFunction>& fs, std:
 
 Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes, const PEInfo& pe) {
     if(!pe.is64 || pe.machine!=0x8664) return Result<FunctionAnalysis>::failure("Function Analysis Engine currently supports x64 PE32+ only");
-    auto runtime=parsePEExceptionDirectory(bytes,pe);
-    if(!runtime) return Result<FunctionAnalysis>::failure(".pdata: "+runtime.error());
+    FunctionAnalysis result;
     auto imports=parsePEImports(bytes,pe);
-    if(!imports) return Result<FunctionAnalysis>::failure("imports: "+imports.error());
-    FunctionAnalysis result; result.imports=std::move(imports.value());
+    if(imports) result.imports=std::move(imports.value());
+    else result.warnings.push_back("imports could not be parsed: "+imports.error());
+
+    // A missing or damaged .pdata directory should not discard valid PE metadata.
+    auto runtime=parsePEExceptionDirectory(bytes,pe);
+    if(!runtime) {
+        result.warnings.push_back("function boundaries unavailable: "+runtime.error());
+        return Result<FunctionAnalysis>::success(std::move(result));
+    }
+
     result.functions.reserve(runtime.value().size());
     for(const auto& fn:runtime.value()) {
         auto unwind=parsePEUnwindInfo(bytes,pe,fn);
-        if(!unwind) return Result<FunctionAnalysis>::failure("UNWIND_INFO at "+hex32(fn.unwindInfoRva)+": "+unwind.error());
+        if(!unwind) {
+            result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
+                " (UNWIND_INFO "+hex32(fn.unwindInfoRva)+"): "+unwind.error());
+            continue;
+        }
+
         AnalyzedFunction af; af.range=fn; af.unwind=std::move(unwind.value());
         // Follow chained RUNTIME_FUNCTION records with cycle and depth protection.
         std::set<std::uint32_t> seen{fn.unwindInfoRva};
         auto chain=af.unwind;
+        bool chainValid=true;
         for(unsigned depth=0;chain.chained && depth<32;++depth) {
             const auto next=chain.chainedFunction;
-            if(!seen.insert(next.unwindInfoRva).second) return Result<FunctionAnalysis>::failure("cyclic CHAININFO reference at "+hex32(next.unwindInfoRva));
-            af.chainedRecords.push_back(next);
+            if(!seen.insert(next.unwindInfoRva).second) {
+                result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
+                    " because CHAININFO contains a cycle");
+                chainValid=false;
+                break;
+            }
             auto nested=parsePEUnwindInfo(bytes,pe,next);
-            if(!nested) return Result<FunctionAnalysis>::failure("chained UNWIND_INFO at "+hex32(next.unwindInfoRva)+": "+nested.error());
+            if(!nested) {
+                result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
+                    " because chained UNWIND_INFO is invalid: "+nested.error());
+                chainValid=false;
+                break;
+            }
+            af.chainedRecords.push_back(next);
             chain=std::move(nested.value());
         }
-        if(chain.chained) return Result<FunctionAnalysis>::failure("CHAININFO nesting exceeds 32 levels");
-        result.functions.push_back(std::move(af));
+        if(chain.chained) {
+            result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
+                " because CHAININFO nesting exceeds 32 levels");
+            chainValid=false;
+        }
+        if(chainValid) result.functions.push_back(std::move(af));
     }
     std::sort(result.functions.begin(),result.functions.end(),[](const auto& a,const auto& b){return a.range.beginRva<b.range.beginRva;});
     std::map<std::uint32_t,std::string> iat;
