@@ -37,6 +37,7 @@ add_library(lulz_core
     src/hex/HexFormatter.cpp
     src/formats/common/FormatDetector.cpp
     src/formats/pe/PEParser.cpp
+    src/formats/pe/PEExtendedParser.cpp
     src/formats/elf/ELFParser.cpp
     src/formats/dotnet/DotNetParser.cpp
     src/formats/macho/MachOParser.cpp
