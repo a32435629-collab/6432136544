@@ -4,6 +4,7 @@
 #include "ai/providers/OpenAIClient.hpp"
 #include "ai/providers/DeepSeekClient.hpp"
 #include <cstdlib>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <utility>
@@ -50,14 +51,65 @@ AIAnalysisResult AIEngine::analyze(const AIContext& context) const {
                 result.neuralError = "Cannot load local model: " + loadError;
             } else {
                 std::vector<double> input;
-                for (const auto& feature : result.features.values)
-                    if (feature.type == features::FeatureType::Numeric) input.push_back(feature.value);
-                std::string predictError;
-                auto prediction = model->predict(input, &predictError);
-                if (!prediction) result.neuralError = "Neural inference failed: " + predictError;
-                else {
-                    result.neuralInferencePerformed = true;
-                    result.neuralOutput = std::move(*prediction);
+                std::vector<std::string> featureNames;
+                for (const auto& feature : result.features.values) {
+                    if (feature.type == features::FeatureType::Numeric) {
+                        input.push_back(feature.value);
+                        featureNames.push_back(feature.name);
+                    }
+                }
+
+                // Trainer-generated checkpoints carry a sibling .norm file. Apply
+                // exactly the training-set normalization before local inference.
+                std::ifstream normalizerFile(config_.modelPath + ".norm");
+                if (normalizerFile) {
+                    std::string magic;
+                    std::string countLine;
+                    std::getline(normalizerFile, magic);
+                    std::getline(normalizerFile, countLine);
+                    std::size_t count = 0;
+                    try { count = static_cast<std::size_t>(std::stoul(countLine)); }
+                    catch (...) { count = 0; }
+                    if (magic != "LULZNORM1" || count != input.size()) {
+                        result.neuralError = "Invalid or incompatible model normalization metadata";
+                    } else {
+                        for (std::size_t i = 0; i < count; ++i) {
+                            std::string line;
+                            if (!std::getline(normalizerFile, line)) {
+                                result.neuralError = "Truncated model normalization metadata";
+                                break;
+                            }
+                            const auto first = line.find(',');
+                            const auto second = first == std::string::npos ? first : line.find(',', first + 1);
+                            if (first == std::string::npos || second == std::string::npos ||
+                                line.substr(0, first) != featureNames[i]) {
+                                result.neuralError = "Model feature schema does not match current extractor";
+                                break;
+                            }
+                            try {
+                                const double mean = std::stod(line.substr(first + 1, second - first - 1));
+                                const double scale = std::stod(line.substr(second + 1));
+                                if (!std::isfinite(mean) || !std::isfinite(scale) || scale <= 0.0) {
+                                    result.neuralError = "Invalid normalization parameters";
+                                    break;
+                                }
+                                input[i] = (input[i] - mean) / scale;
+                            } catch (...) {
+                                result.neuralError = "Invalid normalization parameters";
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (result.neuralError.empty()) {
+                    std::string predictError;
+                    auto prediction = model->predict(input, &predictError);
+                    if (!prediction) result.neuralError = "Neural inference failed: " + predictError;
+                    else {
+                        result.neuralInferencePerformed = true;
+                        result.neuralOutput = std::move(*prediction);
+                    }
                 }
             }
         }
