@@ -8,7 +8,7 @@
   "required": ["enabled", "provider", "modelName", "endpoint", "maxFunctions", "maxImports", "maxInstructions", "modelPath"],
   "properties": {
     "enabled": { "type": "boolean", "default": true },
-    "provider": { "type": "string", "enum": ["none", "local", "openai"], "default": "none" },
+    "provider": { "type": "string", "enum": ["none", "local", "openai", "deepseek", "groq"], "default": "none" },
     "modelName": { "type": "string", "minLength": 1, "default": "none" },
     "endpoint": { "type": "string", "default": "" },
     "modelPath": { "type": "string", "default": "" },
