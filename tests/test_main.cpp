@@ -131,5 +131,22 @@ int main() {
     pe[0x400]=0x01; pe[0x401]=4; pe[0x402]=0; pe[0x403]=1;
     assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
 
+    // A malformed individual unwind record must not abort the entire image analysis.
+    auto bestEffort = lulz::analyzePEFunctions(pe, parsed.value());
+    assert(bestEffort);
+    assert(bestEffort.value().functions.empty());
+    assert(!bestEffort.value().warnings.empty());
+
+    // Images without .pdata still produce a successful partial analysis result.
+    auto withoutPdata = pe;
+    w32(0x98 + 112 + 3 * 8, 0);
+    w32(0x98 + 112 + 3 * 8 + 4, 0);
+    auto noPdataInfo = lulz::parsePE(withoutPdata);
+    assert(noPdataInfo);
+    auto noPdataAnalysis = lulz::analyzePEFunctions(withoutPdata, noPdataInfo.value());
+    assert(noPdataAnalysis);
+    assert(noPdataAnalysis.value().functions.empty());
+    assert(!noPdataAnalysis.value().warnings.empty());
+
     std::cout<<"All foundation tests passed\n";
 }
