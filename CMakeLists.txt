@@ -96,6 +96,10 @@ if(DLL_LULZ_BUILD_TESTS)
     add_executable(lulz_neural_tests tests/neural_test.cpp)
     target_link_libraries(lulz_neural_tests PRIVATE lulz_core)
     add_test(NAME lulz_neural_tests COMMAND lulz_neural_tests)
+    add_test(NAME lulz_trainer_smoke
+        COMMAND lulz_trainer
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/synthetic_pe_training.csv
+            ${CMAKE_CURRENT_BINARY_DIR}/trainer_smoke.lznn)
 
     add_executable(lulz_subsystem_tests tests/subsystems_test.cpp)
     target_link_libraries(lulz_subsystem_tests PRIVATE lulz_core)
