@@ -472,10 +472,12 @@ int main(int argc, char** argv) {
         for (std::size_t i = 0; i < info.directories.size(); ++i) {
             const auto& directory = info.directories[i];
             if (directory.present())
-                std::cout << "  " << directoryNames[i] << " RVA=" << hexValue(directory.rva)
-                          << " size=" << directory.size << '\n';
+                std::cout << "  " << directoryNames[i]
+                          << (directory.usesFileOffset ? " FILE_OFFSET=" : " RVA=")
+                          << hexValue(directory.rva) << " size=" << directory.size << '\n';
         }
         std::cout << "Exports: " << info.exports.size()
+                  << "\nCertificates: " << info.certificates.size()
                   << "\nBase relocations: " << info.relocations.size()
                   << "\nDebug entries: " << info.debugEntries.size()
                   << "\nTLS callbacks: " << info.tls.callbackRvas.size() << '\n';
