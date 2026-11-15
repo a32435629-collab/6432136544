@@ -7,7 +7,7 @@ int main(int argc, char** argv) {
     if (argc < 2 || argc > 5) {
         std::cerr
             << "LULZ Builder AI 0.8.0\n"
-            << "Usage: lulz_builder <project.json> [--out directory] [--force]\n";
+            << "Usage: lulz_builder <project-or-analysis.json> [--out directory] [--force]\n";
         return 2;
     }
 
