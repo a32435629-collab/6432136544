@@ -230,8 +230,6 @@ static int runAI(
                   << "\nPE debug entries: " << extendedPE.value().debugEntries.size()
                   << "\nPE TLS callbacks: " << extendedPE.value().tls.callbackRvas.size()
                   << "\n";
-        for (const auto& warning : extendedPE.value().warnings)
-            std::cerr << "[PE metadata warning] " << warning << '\n';
     }
     std::cout << '\n';
 
@@ -609,6 +607,8 @@ int main(int argc, char** argv) {
                       << analysis.error() << '\n';
             return 2;
         }
+        for (const auto& warning : analysis.value().warnings)
+            std::cerr << "[WARN] " << warning << '\n';
 
         const std::string report =
             lulz::functionAnalysisToJson(
