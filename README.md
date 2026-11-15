@@ -219,7 +219,7 @@ The JSON schema is available at `config/builder_project.schema.json`.
 
 ### Extended PE inspection
 
-The new `pe-deep` command reports all available data-directory entries and parses export symbols, base relocations, TLS callback addresses and debug directory records:
+The new `pe-deep` command reports all available data-directory entries and parses export symbols, base relocations, TLS callback addresses, debug directory records and Authenticode WIN_CERTIFICATE table entries:
 
     .\build\Release\dll_lulz.exe pe-deep .\sample.exe
 
