@@ -52,5 +52,6 @@ Do not put the plaintext key in SQL, source control, logs, or screenshots. The A
 
 - `GET /api/health` — service health.
 - `POST /api/license/validate` — JSON body: `{"license_key":"..."}`.
+- `POST /api/license/activate` — JSON body: `{"license_key":"...","device_id":"<persistent-random-hex-id>"}`.
 
-The API returns validity and expiry only. Device activation, account login, payment processing, admin UI, and production abuse controls are not implemented yet.
+The API supports validation and device activation. Activation uses a client-generated persistent random device ID; it is not hardware fingerprinting and can be reset by deleting the local ID. The API enforces the per-license device count in D1. The native DLL-LULZ-AI client still needs to be integrated with `/api/license/activate`. Account login, payment processing, admin UI, device deactivation, rate limiting, audit logging, and production abuse controls are not implemented yet.
