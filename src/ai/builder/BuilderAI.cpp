@@ -6,6 +6,7 @@
 #include <set>
 #include <sstream>
 #include <iomanip>
+#include <iterator>
 #include <utility>
 #include <system_error>
 
@@ -198,6 +199,23 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
     return manifest.str();
 }
 
+bool hasSymlinkComponent(const std::filesystem::path& root, const std::filesystem::path& relative) {
+    std::error_code ec;
+    std::filesystem::path current = root;
+    auto inspect = [&](const std::filesystem::path& candidate) {
+        const auto status = std::filesystem::symlink_status(candidate, ec);
+        if (ec == std::errc::no_such_file_or_directory) { ec.clear(); return false; }
+        if (ec) return true;
+        return std::filesystem::is_symlink(status);
+    };
+    if (inspect(current)) return true;
+    for (const auto& component : relative) {
+        current /= component;
+        if (inspect(current)) return true;
+    }
+    return false;
+}
+
 BuildReport failure(std::string message) {
     BuildReport report;
     report.error = std::move(message);
@@ -288,6 +306,10 @@ BuildReport BuilderAI::buildFromJson(
 
     for (const auto& file : pending) {
         const auto destination = root / file.path;
+        if (hasSymlinkComponent(root, file.path)) {
+            report.error = "refusing to follow a symbolic link in output path: " + file.path.string();
+            return report;
+        }
         std::filesystem::create_directories(destination.parent_path(), ec);
         if (ec) { report.error = "cannot create directory for " + file.path.string() + ": " + ec.message(); return report; }
 
