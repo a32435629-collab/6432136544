@@ -54,12 +54,12 @@ std::string jsonEscape(const std::string& value) {
     for (unsigned char ch : value) {
         switch (ch) {
         case '"': out += "\\\""; break;
-        case '\\\\': out += "\\\\\\"; break;
-        case '\\b': out += "\\b"; break;
-        case '\\f': out += "\\f"; break;
-        case '\\n': out += "\\n"; break;
-        case '\\r': out += "\\r"; break;
-        case '\\t': out += "\\t"; break;
+        case '\\': out += "\\\\"; break;
+        case '\b': out += "\\b"; break;
+        case '\f': out += "\\f"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
         default:
             if (ch < 0x20) {
                 static constexpr char digits[] = "0123456789abcdef";
@@ -75,10 +75,10 @@ std::string jsonEscape(const std::string& value) {
 std::string cppEscape(const std::string& value) {
     std::string out;
     for (char ch : value) {
-        if (ch == '\\\\' || ch == '"') { out.push_back('\\\\'); out.push_back(ch); }
-        else if (ch == '\\n') out += "\\n";
-        else if (ch == '\\r') out += "\\r";
-        else if (ch == '\\t') out += "\\t";
+        if (ch == '\\' || ch == '"') { out.push_back('\\'); out.push_back(ch); }
+        else if (ch == '\n') out += "\\n";
+        else if (ch == '\r') out += "\\r";
+        else if (ch == '\t') out += "\\t";
         else out.push_back(ch);
     }
     return out;
