@@ -35,6 +35,28 @@ int main() {
 
     std::stringstream truncated("LU", std::ios::in | std::ios::binary);
     assert(!NeuralNetwork::load(truncated));
+    // Exercise the new opt-in optimizer controls on the same deterministic task.
+    NeuralNetwork advanced({1, 8, 1}, Activation::Tanh, Activation::Linear, 99);
+    TrainingOptions advancedOptions;
+    advancedOptions.epochs = 1800;
+    advancedOptions.learningRate = 0.02;
+    advancedOptions.momentum = 0.8;
+    advancedOptions.weightDecay = 0.0001;
+    advancedOptions.gradientClipNorm = 1.0;
+    advancedOptions.seed = 321;
+    const auto advancedReport = advanced.train(inputs, targets, advancedOptions);
+    assert(advancedReport && advancedReport->epochsCompleted == advancedOptions.epochs);
+    assert(std::isfinite(advancedReport->finalLoss));
+    assert(advancedReport->finalLoss < advancedReport->initialLoss);
+
+    TrainingOptions invalidOptions = advancedOptions;
+    invalidOptions.momentum = 1.0;
+    assert(!advanced.train(inputs, targets, invalidOptions));
+
+    invalidOptions = advancedOptions;
+    invalidOptions.gradientClipNorm = -1.0;
+    assert(!advanced.train(inputs, targets, invalidOptions));
+
     NeuralNetwork invalid({1, 0, 2});
     assert(!invalid.valid());
     assert(!invalid.train(inputs, targets, options));
