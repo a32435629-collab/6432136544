@@ -35,6 +35,8 @@ Call graph не является полным CFG: косвенные перех
 - AI configuration/context и извлечение признаков импортов, функций и декодированных инструкций.
 - Лёгкая CPU feed-forward neural network (MLP): configurable topology, ReLU/tanh/sigmoid/linear activations, inference и SGD training.\n- Neural Evolution 0.7 foundation: momentum SGD, L2 weight decay, global gradient-norm clipping и проверки non-finite значений во время обучения.
 - Сохранение и загрузка модели в версионированном little-endian формате с проверками размеров и параметров.
+- `lulz_dataset`: статическое извлечение 28 числовых PE-признаков из размеченного manifest CSV.
+- `lulz_trainer`: локальное обучение MLP, stratified train/validation/test split, метрики и сохранение `.lznn` вместе с `.norm` нормализацией.
 - JSON presets в каталоге config/ и отдельный opt-in microbenchmark в benchmarks/.
 
 **Важно:** JSON presets пока не загружаются автоматически в AIConfig. Наличие MLP не означает, что приложение содержит обученный malware detector. Текущий AI pipeline — экспериментальная основа; качество обнаружения на реальных файлах не заявляется.
@@ -92,7 +94,18 @@ Call graph не является полным CFG: косвенные перех
 
 Для single-config генераторов (например, MinGW Makefiles) исполняемый файл обычно находится в build/dll_lulz.exe.
 
-### Отдельный neural benchmark
+### Локальное обучение PE-модели
+
+Инструкция по формату manifest, извлечению датасета и запуску trainer находится в [datasets/README.md](datasets/README.md).
+
+Краткий workflow после сборки:
+
+    .\\build\\Release\\lulz_dataset.exe .\\datasets\\pe_manifest.csv .\\datasets\\pe_training.csv
+    .\\build\\Release\\lulz_trainer.exe .\\datasets\\pe_training.csv .\\models\\lulz_pe_0.7.lznn
+
+Для локального inference используйте полученный checkpoint через `dll_lulz ai <file> --model <checkpoint.lznn>`. Файл `<checkpoint.lznn>.norm` должен оставаться рядом с checkpoint. Текущая random stratified split не исключает утечку близких/родственных образцов между выборками; см. ограничения в datasets/README.md.
+
+## Отдельный neural benchmark
 
 Бенчмарки отключены по умолчанию:
 
