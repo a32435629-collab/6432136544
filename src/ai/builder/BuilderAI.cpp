@@ -128,36 +128,36 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
     const auto* callbacks = callbacksValue ? callbacksValue->array() : nullptr;
 
     std::ostringstream header;
-    header << "#pragma once\\n\\n#include <cstdint>\\n#include <string>\\n#include <vector>\\n\\n"
-           << "namespace lulz_generated {\\n"
-           << "struct Import { std::string module; std::string name; std::string iatRva; };\\n"
-           << "struct Call { std::string instructionRva; std::string kind; std::string targetRva; std::string target; bool resolved; };\\n"
-           << "struct Function { std::string beginRva; std::string endRva; std::string unwindRva; std::uint64_t size; std::uint32_t stackConsumed; std::vector<Call> calls; };\\n"
-           << "struct Export { std::string name; std::uint32_t ordinal; std::string rva; bool forwarded; std::string forwarder; };\\n"
-           << "struct Relocation { std::string pageRva; std::string targetRva; std::uint8_t type; };\\n"
-           << "struct DebugEntry { std::uint32_t timestamp; std::uint32_t type; std::uint32_t size; std::uint32_t rawPointer; };\\n"
-           << "struct Certificate { std::uint32_t length; std::uint16_t revision; std::uint16_t type; std::uint32_t fileOffset; };\\n"
-           << "extern const std::string imageBase;\\n"
-           << "extern const std::vector<Import> imports;\\n"
-           << "extern const std::vector<Function> functions;\\n"
-           << "extern const std::vector<Export> exports;\\n"
-           << "extern const std::vector<Relocation> relocations;\\n"
-           << "extern const std::vector<DebugEntry> debugEntries;\\n"
-           << "extern const std::vector<Certificate> certificates;\\n"
-           << "extern const std::vector<std::string> tlsCallbacks;\\n"
-           << "} // namespace lulz_generated\\n";
+    header << "#pragma once\n\n#include <cstdint>\n#include <string>\n#include <vector>\n\n"
+           << "namespace lulz_generated {\n"
+           << "struct Import { std::string module; std::string name; std::string iatRva; };\n"
+           << "struct Call { std::string instructionRva; std::string kind; std::string targetRva; std::string target; bool resolved; };\n"
+           << "struct Function { std::string beginRva; std::string endRva; std::string unwindRva; std::uint64_t size; std::uint32_t stackConsumed; std::vector<Call> calls; };\n"
+           << "struct Export { std::string name; std::uint32_t ordinal; std::string rva; bool forwarded; std::string forwarder; };\n"
+           << "struct Relocation { std::string pageRva; std::string targetRva; std::uint8_t type; };\n"
+           << "struct DebugEntry { std::uint32_t timestamp; std::uint32_t type; std::uint32_t size; std::uint32_t rawPointer; };\n"
+           << "struct Certificate { std::uint32_t length; std::uint16_t revision; std::uint16_t type; std::uint32_t fileOffset; };\n"
+           << "extern const std::string imageBase;\n"
+           << "extern const std::vector<Import> imports;\n"
+           << "extern const std::vector<Function> functions;\n"
+           << "extern const std::vector<Export> exports;\n"
+           << "extern const std::vector<Relocation> relocations;\n"
+           << "extern const std::vector<DebugEntry> debugEntries;\n"
+           << "extern const std::vector<Certificate> certificates;\n"
+           << "extern const std::vector<std::string> tlsCallbacks;\n"
+           << "} // namespace lulz_generated\n";
 
     std::ostringstream source;
-    source << "#include \"analysis/AnalysisData.hpp\"\\n\\nnamespace lulz_generated {\\n";
-    source << "const std::string imageBase = \"" << cppEscape(scalarText(root.get("image_base"), "unknown")) << "\";\\n";
-    source << "const std::vector<Import> imports = {\\n";
+    source << "#include \"analysis/AnalysisData.hpp\"\n\nnamespace lulz_generated {\n";
+    source << "const std::string imageBase = \"" << cppEscape(scalarText(root.get("image_base"), "unknown")) << "\";\n";
+    source << "const std::vector<Import> imports = {\n";
     for (const auto& item : *imports) {
         if (!item.isObject()) continue;
         source << "    {\"" << cppEscape(scalarText(item.get("module"))) << "\", \""
                << cppEscape(scalarText(item.get("name"))) << "\", \""
-               << cppEscape(scalarText(item.get("iat_rva"))) << "\"},\\n";
+               << cppEscape(scalarText(item.get("iat_rva"))) << "\"},\n";
     }
-    source << "};\\nconst std::vector<Function> functions = {\\n";
+    source << "};\nconst std::vector<Function> functions = {\n";
     for (const auto& item : *functions) {
         if (!item.isObject()) continue;
         const auto* callsValue = item.get("calls");
@@ -180,74 +180,90 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
                        << (isResolved ? "true" : "false") << "},";
             }
         }
-        source << "}},\\n";
+        source << "}},\n";
     }
-    source << "};\\nconst std::vector<Export> exports = {\\n";
-    if (exports) for (const auto& item : *exports) {
-        if (!item.isObject()) continue;
-        const auto* forwarded = item.get("forwarded");
-        const bool isForwarded = forwarded && std::get_if<bool>(&forwarded->value) &&
-            *std::get_if<bool>(&forwarded->value);
-        source << "    {\\"" << cppEscape(scalarText(item.get("name"))) << "\\", "
-               << numberLiteral(item.get("ordinal")) << "U, \\""
-               << cppEscape(scalarText(item.get("rva"))) << "\\", "
-               << (isForwarded ? "true" : "false") << ", \\""
-               << cppEscape(scalarText(item.get("forwarder"))) << "\\"},\\n";
+
+    source << "};\nconst std::vector<Export> exports = {\n";
+    if (exports) {
+        for (const auto& item : *exports) {
+            if (!item.isObject()) continue;
+            const auto* forwarded = item.get("forwarded");
+            const bool isForwarded = forwarded && std::get_if<bool>(&forwarded->value) &&
+                *std::get_if<bool>(&forwarded->value);
+            source << "    {\"" << cppEscape(scalarText(item.get("name"))) << "\", "
+                   << numberLiteral(item.get("ordinal")) << "U, \""
+                   << cppEscape(scalarText(item.get("rva"))) << "\", "
+                   << (isForwarded ? "true" : "false") << ", \""
+                   << cppEscape(scalarText(item.get("forwarder"))) << "\"},\n";
+        }
     }
-    source << "};\\nconst std::vector<Relocation> relocations = {\\n";
-    if (relocations) for (const auto& item : *relocations) {
-        if (!item.isObject()) continue;
-        source << "    {\\"" << cppEscape(scalarText(item.get("page_rva"))) << "\\", \\""
-               << cppEscape(scalarText(item.get("target_rva"))) << "\\", "
-               << numberLiteral(item.get("type")) << "U},\\n";
+
+    source << "};\nconst std::vector<Relocation> relocations = {\n";
+    if (relocations) {
+        for (const auto& item : *relocations) {
+            if (!item.isObject()) continue;
+            source << "    {\"" << cppEscape(scalarText(item.get("page_rva"))) << "\", \""
+                   << cppEscape(scalarText(item.get("target_rva"))) << "\", "
+                   << numberLiteral(item.get("type")) << "U},\n";
+        }
     }
-    source << "};\\nconst std::vector<DebugEntry> debugEntries = {\\n";
-    if (debugEntries) for (const auto& item : *debugEntries) {
-        if (!item.isObject()) continue;
-        source << "    {" << numberLiteral(item.get("timestamp")) << "U, "
-               << numberLiteral(item.get("type")) << "U, "
-               << numberLiteral(item.get("size")) << "U, "
-               << numberLiteral(item.get("raw_pointer")) << "U},\\n";
+
+    source << "};\nconst std::vector<DebugEntry> debugEntries = {\n";
+    if (debugEntries) {
+        for (const auto& item : *debugEntries) {
+            if (!item.isObject()) continue;
+            source << "    {" << numberLiteral(item.get("timestamp")) << "U, "
+                   << numberLiteral(item.get("type")) << "U, "
+                   << numberLiteral(item.get("size")) << "U, "
+                   << numberLiteral(item.get("raw_pointer")) << "U},\n";
+        }
     }
+
     source << "};\nconst std::vector<Certificate> certificates = {\n";
-    if (certificates) for (const auto& item : *certificates) {
-        if (!item.isObject()) continue;
-        source << "    {" << numberLiteral(item.get("length")) << "U, "
-               << numberLiteral(item.get("revision")) << "U, "
-               << numberLiteral(item.get("certificate_type")) << "U, "
-               << numberLiteral(item.get("file_offset")) << "U},\n";
+    if (certificates) {
+        for (const auto& item : *certificates) {
+            if (!item.isObject()) continue;
+            source << "    {" << numberLiteral(item.get("length")) << "U, "
+                   << numberLiteral(item.get("revision")) << "U, "
+                   << numberLiteral(item.get("certificate_type")) << "U, "
+                   << numberLiteral(item.get("file_offset")) << "U},\n";
+        }
     }
-    source << "};\nconst std::vector<std::string> tlsCallbacks = {";
-    if (callbacks) for (const auto& item : *callbacks)
-        source << "\\\"" << cppEscape(scalarText(&item)) << "\\",";
-    source << "};\\n} // namespace lulz_generated\\n";
+
+    source << "};\nconst std::vector<std::string> tlsCallbacks = {\n";
+    if (callbacks) {
+        for (const auto& item : *callbacks)
+            source << "    \"" << cppEscape(scalarText(&item)) << "\",\n";
+    }
+    source << "};\n} // namespace lulz_generated\n";
 
     const std::string mainSource =
-        "#include \"analysis/AnalysisData.hpp\"\\n"
-        "#include <iostream>\\n"
-        "int main() {\\n"
-        "    std::cout << \"PE analysis project\\nImage base: \" << lulz_generated::imageBase << \"\\n\";\\n"
-        "    std::cout << \"Imports: \" << lulz_generated::imports.size() << \"\\n\";\\n"
-        "    std::cout << \"Functions: \" << lulz_generated::functions.size() << \"\\n\";\\n"
+        "#include \"analysis/AnalysisData.hpp\"\n"
+        "#include <iostream>\n"
+        "int main() {\n"
+        "    std::cout << \"PE analysis project\\nImage base: \" << lulz_generated::imageBase << \"\\n\";\n"
+        "    std::cout << \"Imports: \" << lulz_generated::imports.size() << \"\\n\";\n"
+        "    std::cout << \"Functions: \" << lulz_generated::functions.size() << \"\\n\";\n"
         "    std::cout << \"Exports: \" << lulz_generated::exports.size() << \"\\n\";\n"
         "    std::cout << \"Relocations: \" << lulz_generated::relocations.size() << \"\\n\";\n"
         "    std::cout << \"Certificates: \" << lulz_generated::certificates.size() << \"\\n\";\n"
         "    std::cout << \"Debug entries: \" << lulz_generated::debugEntries.size() << \"\\n\";\n"
         "    std::cout << \"TLS callbacks: \" << lulz_generated::tlsCallbacks.size() << \"\\n\";\n"
-        "    for (const auto& function : lulz_generated::functions)\\n"
-        "        std::cout << function.beginRva << \" - \" << function.endRva << \" calls=\" << function.calls.size() << \"\\n\";\\n"
-        "    return 0;\\n"
-        "}\\n";
+        "    for (const auto& function : lulz_generated::functions)\n"
+        "        std::cout << function.beginRva << \" - \" << function.endRva << \" calls=\" << function.calls.size() << \"\\n\";\n"
+        "    return 0;\n"
+        "}\n";
+
     const std::string cmake =
-        "cmake_minimum_required(VERSION 3.20)\\n"
-        "project(LulzAnalysisExport LANGUAGES CXX)\\n"
-        "set(CMAKE_CXX_STANDARD 20)\\n"
-        "set(CMAKE_CXX_STANDARD_REQUIRED ON)\\n"
-        "add_executable(LulzAnalysisExport src/main.cpp src/AnalysisData.cpp)\\n"
-        "target_include_directories(LulzAnalysisExport PRIVATE include)\\n";
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(LulzAnalysisExport LANGUAGES CXX)\n"
+        "set(CMAKE_CXX_STANDARD 20)\n"
+        "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n"
+        "add_executable(LulzAnalysisExport src/main.cpp src/AnalysisData.cpp)\n"
+        "target_include_directories(LulzAnalysisExport PRIVATE include)\n";
 
     std::ostringstream manifest;
-    manifest << "{\\"project\\":\\"LulzAnalysisExport\\",\\"files\\":[";
+    manifest << "{\"project\":\"LulzAnalysisExport\",\"files\":[";
     const std::pair<std::string, std::string> generated[] = {
         {"include/analysis/AnalysisData.hpp", header.str()},
         {"src/AnalysisData.cpp", source.str()},
@@ -257,8 +273,8 @@ std::string makeAnalysisProjectManifest(const JsonValue& root, const std::string
     };
     for (std::size_t i = 0; i < std::size(generated); ++i) {
         if (i) manifest << ',';
-        manifest << "{\\"path\\":\\"" << jsonEscape(generated[i].first)
-                 << "\\",\\"content\\":\\"" << jsonEscape(generated[i].second) << "\\"}";
+        manifest << "{\"path\":\"" << jsonEscape(generated[i].first)
+                 << "\",\"content\":\"" << jsonEscape(generated[i].second) << "\"}";
     }
     manifest << "]}";
     return manifest.str();
