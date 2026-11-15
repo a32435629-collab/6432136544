@@ -31,6 +31,11 @@ int main() {
     w16(0, 0x5a4d); w32(0x3c, 0x80); w32(0x80, 0x00004550);
     w16(0x84, 0x8664); w16(0x86, 1); w16(0x94, 240); w16(0x98, 0x20b);
     w32(0x98+108, 16); w32(0x98+112+3*8, 0x1000); w32(0x98+112+3*8+4, 12);
+// Security directory (index 4) stores a file offset, not an RVA.
+// Append one aligned WIN_CERTIFICATE record after the section data.
+pe.resize(0x510, 0);
+w32(0x98+112+4*8, 0x500); w32(0x98+112+4*8+4, 16);
+w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     const std::size_t sh=0x98+240;
     pe[sh]='.'; pe[sh+1]='p'; pe[sh+2]='d'; pe[sh+3]='a'; pe[sh+4]='t'; pe[sh+5]='a';
     w32(sh+8, 0x300); w32(sh+12, 0x1000); w32(sh+16, 0x300); w32(sh+20, 0x200);
