@@ -1,4 +1,4 @@
-# DLL LULZ AI v0.7.0 — Neural Evolution
+# DLL LULZ AI v0.8.0 — Dual AI Architecture
 
 **DLL LULZ AI** — модульный C++20-инструмент для статического анализа исполняемых файлов, исследования бинарных форматов и экспериментов с нейросетевыми моделями.
 
@@ -171,3 +171,51 @@ Groq CLI example (Windows PowerShell):
     .\\build\\Release\\dll_lulz.exe ai .\\sample.exe --groq
 
 Groq endpoint: https://api.groq.com/openai/v1/chat/completions. Model IDs and free-tier limits are controlled by Groq and can change; check the Groq console for current availability.
+
+
+## Version 0.8.0 — Dual AI Architecture
+
+Version 0.8.0 introduces two independent processing roles:
+
+- **Analyzer AI** collects static binary metadata, parses executable structures, extracts features and produces analysis data. It does not execute the inspected file.
+- **Builder AI** consumes a JSON project manifest and materializes a C++ project under `dist/<project>/`.
+
+### Builder AI JSON format
+
+The input JSON has a project name and a list of relative output paths with UTF-8 file contents:
+
+```json
+{
+  "project": "ExampleProject",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "content": "cmake_minimum_required(VERSION 3.20)\nproject(ExampleProject)\n"
+    },
+    {
+      "path": "src/main.cpp",
+      "content": "#include <iostream>\nint main(){ std::cout << \"hello\\n\"; }\n"
+    }
+  ]
+}
+```
+
+Generate the sample project:
+
+    .\build\Release\lulz_builder.exe .\examples\builder\hello_project.json
+
+Choose a different output directory:
+
+    .\build\Release\lulz_builder.exe .\examples\builder\hello_project.json --out .\dist
+
+Use `--force` only when intentionally replacing files in an existing generated project. The builder rejects absolute paths, parent-directory traversal, duplicate output paths, oversized files and excessive file counts. It does not invoke a compiler automatically; build the generated project with CMake after reviewing its source.
+
+The JSON schema is available at `config/builder_project.schema.json`.
+
+### Extended PE inspection
+
+The new `pe-deep` command reports all available data-directory entries and parses export symbols, base relocations, TLS callback addresses and debug directory records:
+
+    .\build\Release\dll_lulz.exe pe-deep .\sample.exe
+
+The parser is best-effort: malformed or unsupported substructures are reported as warnings where possible. Resource trees, delay-import decoding, load-config internals and certificate-table contents are not yet fully decoded. Static parsing is not a malware verdict.
