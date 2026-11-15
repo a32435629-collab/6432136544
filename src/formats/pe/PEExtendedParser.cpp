@@ -83,6 +83,7 @@ void parseExports(std::span<const std::uint8_t> bytes, PEExtendedInfo& out) {
     if (functionCount > 1'000'000 || nameCount > functionCount) {
         out.warnings.push_back("export table counts exceed safety limits"); return;
     }
+    if (functionCount == 0) return;
     const auto functionTable = mapRva(bytes,out.image,functionsRva,std::size_t(functionCount)*4);
     const auto nameTable = nameCount ? mapRva(bytes,out.image,namesRva,std::size_t(nameCount)*4) : std::optional<std::size_t>{0};
     const auto ordinalTable = nameCount ? mapRva(bytes,out.image,ordinalsRva,std::size_t(nameCount)*2) : std::optional<std::size_t>{0};
