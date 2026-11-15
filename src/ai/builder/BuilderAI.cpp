@@ -2,6 +2,7 @@
 #include "ai/builder/Json.hpp"
 
 #include <fstream>
+#include <cctype>
 #include <set>
 #include <sstream>
 #include <system_error>
@@ -142,6 +143,14 @@ BuildReport BuilderAI::buildFromJson(
             output.write(file.content.data(), static_cast<std::streamsize>(file.content.size()));
             output.flush();
             if (!output) { report.error = "failed writing file: " + temporary; return report; }
+        }
+        if (options.overwrite && std::filesystem::exists(destination, ec)) {
+            std::filesystem::remove(destination, ec);
+            if (ec) {
+                std::filesystem::remove(temporary);
+                report.error = "cannot replace existing file " + destination.string() + ": " + ec.message();
+                return report;
+            }
         }
         std::filesystem::rename(temporary, destination, ec);
         if (ec) {
