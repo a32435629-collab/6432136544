@@ -44,6 +44,9 @@ int main() {
     assert(extended && extended.value().image.is64);
     assert(extended.value().directories[3].rva == 0x1000);
     assert(extended.value().directories[3].size == 12);
+    assert(extended.value().directories[4].usesFileOffset);
+    assert(extended.value().certificates.size() == 1);
+    assert(extended.value().certificates[0].certificateType == 2);
     auto runtime=lulz::parsePEExceptionDirectory(pe, parsed.value());
     assert(runtime && runtime.value().size()==1);
     assert(runtime.value()[0].beginRva==0x1100);
