@@ -36,7 +36,7 @@
 
 static void usage() {
     std::cout
-        << "DLL LULZ AI v0.6.0\n"
+        << "DLL LULZ AI v0.7.0\n"
         << "Commands:\n"
         << "  info <file>       identify format and entropy\n"
         << "  hex <file>        show first 256 bytes\n"
@@ -257,10 +257,10 @@ static int runAI(
     // ======================================
 
     std::cout
-        << "\nAI Core: 0.6.0\n"
-        << "AI Analysis: 0.6.0\n"
-        << "AI Features: 0.6.0\n"
-        << "AI Neural: 0.6.0\n"
+        << "\nAI Core: 0.7.0\n"
+        << "AI Analysis: 0.7.0\n"
+        << "AI Features: 0.7.0\n"
+        << "AI Neural: 0.7.0\n"
         << "Neural inference: " << (result.summary.find("Neural inference: performed") != std::string::npos ? "Performed" : "Not performed") << "\n"
         << "Instruction disassembly: " << context.instructionCount() << " instructions\n"
         << "====================================\n";
