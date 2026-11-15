@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
@@ -211,6 +212,15 @@ int main(int argc, char** argv) {
     if (!report) { std::cerr << "Training failed: " << error << '\n'; return 2; }
 
     const std::string modelPath = argv[2];
+    const auto parentDirectory = std::filesystem::path(modelPath).parent_path();
+    if (!parentDirectory.empty()) {
+        std::error_code directoryError;
+        std::filesystem::create_directories(parentDirectory, directoryError);
+        if (directoryError) {
+            std::cerr << "Cannot create model directory: " << directoryError.message() << '\n';
+            return 2;
+        }
+    }
     {
         std::ofstream output(modelPath, std::ios::binary);
         if (!output || !model.save(output, &error)) {
