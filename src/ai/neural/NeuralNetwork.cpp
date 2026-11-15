@@ -41,14 +41,152 @@ std::optional<std::vector<double>> NeuralNetwork::forward(const std::vector<doub
 }
 std::optional<std::vector<double>> NeuralNetwork::predict(const std::vector<double>& input,std::string* error)const{return forward(input,nullptr,error);}
 double NeuralNetwork::loss(const std::vector<std::vector<double>>& xs,const std::vector<std::vector<double>>& ys)const{double sum=0;std::size_t n=0;for(std::size_t i=0;i<xs.size();++i){auto y=forward(xs[i],nullptr,nullptr);if(!y)return std::numeric_limits<double>::infinity();for(std::size_t j=0;j<y->size();++j){double d=(*y)[j]-ys[i][j];sum+=d*d;++n;}}return n?sum/double(n):0;}
-std::optional<TrainingReport> NeuralNetwork::train(const std::vector<std::vector<double>>& xs,const std::vector<std::vector<double>>& ys,const TrainingOptions& opt,std::string* error){
- if(!valid()){err(error,"Neural network topology is invalid");return std::nullopt;}if(xs.empty()||xs.size()!=ys.size()){err(error,"Training inputs and targets must be non-empty and have equal sizes");return std::nullopt;}if(opt.epochs==0||opt.epochs>1000000||!std::isfinite(opt.learningRate)||opt.learningRate<=0||opt.learningRate>10){err(error,"Training options are outside supported limits");return std::nullopt;}
- for(std::size_t s=0;s<xs.size();++s){if(xs[s].size()!=inputSize()||ys[s].size()!=outputSize()){err(error,"Training sample dimensions do not match network topology");return std::nullopt;}for(double v:xs[s])if(!std::isfinite(v)){err(error,"Training input contains a non-finite value");return std::nullopt;}for(double v:ys[s])if(!std::isfinite(v)){err(error,"Training target contains a non-finite value");return std::nullopt;}}
- TrainingReport report;report.initialLoss=loss(xs,ys);std::vector<std::size_t> order(xs.size());std::iota(order.begin(),order.end(),0);std::mt19937 rng(opt.seed);std::vector<std::vector<double>> acts;std::vector<std::vector<double>> deltas(layers_.size());
- for(std::size_t epoch=0;epoch<opt.epochs;++epoch){if(opt.shuffle)std::shuffle(order.begin(),order.end(),rng);for(auto sample:order){auto out=forward(xs[sample],&acts,error);if(!out)return std::nullopt;
-  for(std::size_t li=layers_.size();li-->0;){const auto& l=layers_[li];auto& delta=deltas[li];delta.assign(l.outputCount,0);for(std::size_t n=0;n<l.outputCount;++n){double propagated=0;if(li+1==layers_.size())propagated=(*out)[n]-ys[sample][n];else{const auto& next=layers_[li+1];for(std::size_t k=0;k<next.outputCount;++k)propagated+=next.weights[k*next.inputCount+n]*deltas[li+1][k];}delta[n]=propagated*derivative(acts[li+1][n],l.activation);}}
-  for(std::size_t li=0;li<layers_.size();++li){auto& l=layers_[li];const auto& prev=acts[li];for(std::size_t o=0;o<l.outputCount;++o){auto offset=o*l.inputCount;for(std::size_t i=0;i<l.inputCount;++i)l.weights[offset+i]-=opt.learningRate*deltas[li][o]*prev[i];l.biases[o]-=opt.learningRate*deltas[li][o];}}
- }report.epochsCompleted=epoch+1;}report.finalLoss=loss(xs,ys);return report;
+std::optional<TrainingReport> NeuralNetwork::train(
+    const std::vector<std::vector<double>>& xs,
+    const std::vector<std::vector<double>>& ys,
+    const TrainingOptions& opt,
+    std::string* error
+) {
+    if (!valid()) {
+        err(error, "Neural network topology is invalid");
+        return std::nullopt;
+    }
+    if (xs.empty() || xs.size() != ys.size()) {
+        err(error, "Training inputs and targets must be non-empty and have equal sizes");
+        return std::nullopt;
+    }
+    if (opt.epochs == 0 || opt.epochs > 1000000 ||
+        !std::isfinite(opt.learningRate) || opt.learningRate <= 0.0 || opt.learningRate > 10.0 ||
+        !std::isfinite(opt.momentum) || opt.momentum < 0.0 || opt.momentum >= 1.0 ||
+        !std::isfinite(opt.weightDecay) || opt.weightDecay < 0.0 || opt.weightDecay > 1.0 ||
+        !std::isfinite(opt.gradientClipNorm) || opt.gradientClipNorm < 0.0 || opt.gradientClipNorm > 1.0e6) {
+        err(error, "Training options are outside supported limits");
+        return std::nullopt;
+    }
+
+    for (std::size_t s = 0; s < xs.size(); ++s) {
+        if (xs[s].size() != inputSize() || ys[s].size() != outputSize()) {
+            err(error, "Training sample dimensions do not match network topology");
+            return std::nullopt;
+        }
+        for (double value : xs[s]) {
+            if (!std::isfinite(value)) {
+                err(error, "Training input contains a non-finite value");
+                return std::nullopt;
+            }
+        }
+        for (double value : ys[s]) {
+            if (!std::isfinite(value)) {
+                err(error, "Training target contains a non-finite value");
+                return std::nullopt;
+            }
+        }
+    }
+
+    TrainingReport report;
+    report.initialLoss = loss(xs, ys);
+
+    std::vector<std::size_t> order(xs.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::mt19937 rng(opt.seed);
+    std::vector<std::vector<double>> activations;
+    std::vector<std::vector<double>> deltas(layers_.size());
+    std::vector<std::vector<double>> weightVelocity(layers_.size());
+    std::vector<std::vector<double>> biasVelocity(layers_.size());
+    for (std::size_t i = 0; i < layers_.size(); ++i) {
+        weightVelocity[i].assign(layers_[i].weights.size(), 0.0);
+        biasVelocity[i].assign(layers_[i].biases.size(), 0.0);
+    }
+
+    for (std::size_t epoch = 0; epoch < opt.epochs; ++epoch) {
+        if (opt.shuffle) {
+            std::shuffle(order.begin(), order.end(), rng);
+        }
+
+        for (const auto sample : order) {
+            const auto output = forward(xs[sample], &activations, error);
+            if (!output) {
+                return std::nullopt;
+            }
+
+            for (std::size_t li = layers_.size(); li-- > 0;) {
+                const auto& layer = layers_[li];
+                auto& delta = deltas[li];
+                delta.assign(layer.outputCount, 0.0);
+
+                for (std::size_t neuron = 0; neuron < layer.outputCount; ++neuron) {
+                    double propagated = 0.0;
+                    if (li + 1 == layers_.size()) {
+                        propagated = (*output)[neuron] - ys[sample][neuron];
+                    } else {
+                        const auto& next = layers_[li + 1];
+                        for (std::size_t k = 0; k < next.outputCount; ++k) {
+                            propagated += next.weights[k * next.inputCount + neuron] * deltas[li + 1][k];
+                        }
+                    }
+                    delta[neuron] = propagated * derivative(activations[li + 1][neuron], layer.activation);
+                }
+            }
+
+            // Clip the complete sample gradient, rather than each parameter independently.
+            double squaredNorm = 0.0;
+            for (std::size_t li = 0; li < layers_.size(); ++li) {
+                const auto& layer = layers_[li];
+                const auto& previous = activations[li];
+                for (std::size_t neuron = 0; neuron < layer.outputCount; ++neuron) {
+                    const double d = deltas[li][neuron];
+                    squaredNorm += d * d;
+                    for (std::size_t input = 0; input < layer.inputCount; ++input) {
+                        const double gradient = d * previous[input];
+                        squaredNorm += gradient * gradient;
+                    }
+                }
+            }
+            if (!std::isfinite(squaredNorm)) {
+                err(error, "Training gradient became non-finite");
+                return std::nullopt;
+            }
+            const double norm = std::sqrt(squaredNorm);
+            const double clipScale = (opt.gradientClipNorm > 0.0 && norm > opt.gradientClipNorm)
+                ? opt.gradientClipNorm / norm
+                : 1.0;
+
+            for (std::size_t li = 0; li < layers_.size(); ++li) {
+                auto& layer = layers_[li];
+                const auto& previous = activations[li];
+                for (std::size_t neuron = 0; neuron < layer.outputCount; ++neuron) {
+                    const auto offset = neuron * layer.inputCount;
+                    for (std::size_t input = 0; input < layer.inputCount; ++input) {
+                        const auto index = offset + input;
+                        const double gradient = deltas[li][neuron] * previous[input] * clipScale;
+                        const double update = gradient + opt.weightDecay * layer.weights[index];
+                        weightVelocity[li][index] = opt.momentum * weightVelocity[li][index] + update;
+                        layer.weights[index] -= opt.learningRate * weightVelocity[li][index];
+                        if (!std::isfinite(layer.weights[index]) || !std::isfinite(weightVelocity[li][index])) {
+                            err(error, "Training produced a non-finite weight");
+                            return std::nullopt;
+                        }
+                    }
+                    const double biasGradient = deltas[li][neuron] * clipScale;
+                    biasVelocity[li][neuron] = opt.momentum * biasVelocity[li][neuron] + biasGradient;
+                    layer.biases[neuron] -= opt.learningRate * biasVelocity[li][neuron];
+                    if (!std::isfinite(layer.biases[neuron]) || !std::isfinite(biasVelocity[li][neuron])) {
+                        err(error, "Training produced a non-finite bias");
+                        return std::nullopt;
+                    }
+                }
+            }
+        }
+        report.epochsCompleted = epoch + 1;
+    }
+
+    report.finalLoss = loss(xs, ys);
+    if (!std::isfinite(report.finalLoss)) {
+        err(error, "Training ended with a non-finite loss");
+        return std::nullopt;
+    }
+    if (error) error->clear();
+    return report;
 }
 bool NeuralNetwork::save(std::ostream& out,std::string* error)const{
  if(!valid()){err(error,"Cannot save an invalid neural network");return false;}out.write(reinterpret_cast<const char*>(kMagic),sizeof(kMagic));if(!writeU32(out,kVersion)||!writeU32(out,std::uint32_t(topology_.size()))){err(error,"Failed to write neural model header");return false;}
