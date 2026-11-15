@@ -139,8 +139,11 @@ int main() {
 
     // Images without .pdata still produce a successful partial analysis result.
     auto withoutPdata = pe;
-    w32(0x98 + 112 + 3 * 8, 0);
-    w32(0x98 + 112 + 3 * 8 + 4, 0);
+    auto w32copy = [&](std::size_t o, std::uint32_t v) {
+        for (int n = 0; n < 4; ++n) withoutPdata[o + n] = std::uint8_t(v >> (n * 8));
+    };
+    w32copy(0x98 + 112 + 3 * 8, 0);
+    w32copy(0x98 + 112 + 3 * 8 + 4, 0);
     auto noPdataInfo = lulz::parsePE(withoutPdata);
     assert(noPdataInfo);
     auto noPdataAnalysis = lulz::analyzePEFunctions(withoutPdata, noPdataInfo.value());
