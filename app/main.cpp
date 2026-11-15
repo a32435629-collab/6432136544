@@ -354,6 +354,9 @@ int main(int argc, char** argv) {
         } else if (argc == 4 && std::string(argv[3]) == "--deepseek") {
             aiConfig.provider = lulz::ai::AIProvider::DeepSeek;
             aiConfig.modelName = "deepseek-flash";
+        } else if (argc == 4 && std::string(argv[3]) == "--groq") {
+            aiConfig.provider = lulz::ai::AIProvider::Groq;
+            aiConfig.modelName = "openai/gpt-oss-20b";
         } else if (argc != 3) {
             std::cerr << "Usage: dll_lulz ai <file> [--model checkpoint.lznn | --openai | --deepseek]\n";
             return 2;
