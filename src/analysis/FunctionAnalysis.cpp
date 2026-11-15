@@ -44,6 +44,15 @@ const AnalyzedFunction* containing(const std::vector<AnalyzedFunction>& fs, std:
 Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes, const PEInfo& pe) {
     if(!pe.is64 || pe.machine!=0x8664) return Result<FunctionAnalysis>::failure("Function Analysis Engine currently supports x64 PE32+ only");
     FunctionAnalysis result;
+    auto extendedMetadata = parsePEExtended(bytes);
+    if (extendedMetadata) {
+        result.peMetadata = std::move(extendedMetadata.value());
+        for (const auto& warning : result.peMetadata.warnings)
+            result.warnings.push_back("PE metadata: " + warning);
+    } else {
+        result.warnings.push_back("extended PE metadata unavailable: " + extendedMetadata.error());
+    }
+
     auto imports=parsePEImports(bytes,pe);
     if(imports) result.imports=std::move(imports.value());
     else result.warnings.push_back("imports could not be parsed: "+imports.error());
@@ -191,7 +200,48 @@ std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
     std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect targets other than RIP-relative IAT slots may remain unresolved.\", \"Indirect calls are resolved only for RIP-relative IAT forms FF 15/FF 25.\"],\n  \"analysis_warnings\": [";
     for(std::size_t i=0;i<a.warnings.size();++i){if(i)o<<",";o<<"\n    \""<<escapeJson(a.warnings[i])<<"\"";}
     if(!a.warnings.empty()) o<<"\n  ";
-    o<<"],\n  \"imports\": [";
+    o<<"],\n  \"pe_metadata\": {\"size_of_image\": "<<a.peMetadata.sizeOfImage
+     <<", \"size_of_headers\": "<<a.peMetadata.sizeOfHeaders
+     <<", \"checksum\": "<<a.peMetadata.checksum
+     <<", \"subsystem\": "<<a.peMetadata.subsystem
+     <<", \"dll_characteristics\": "<<a.peMetadata.dllCharacteristics
+     <<", \"data_directories\": [";
+    bool firstDirectory=true;
+    for(std::size_t i=0;i<a.peMetadata.directories.size();++i) {
+        const auto& directory=a.peMetadata.directories[i];
+        if(!directory.present()) continue;
+        if(!firstDirectory) o<<", ";
+        firstDirectory=false;
+        o<<"{\"index\": "<<i<<", \"rva\": \""<<hex32(directory.rva)<<"\", \"size\": "<<directory.size<<"}";
+    }
+    o<<"], \"exports\": [";
+    for(std::size_t i=0;i<a.peMetadata.exports.size();++i) {
+        const auto& item=a.peMetadata.exports[i]; if(i)o<<", ";
+        o<<"{\"name\": \""<<escapeJson(item.name)<<"\", \"ordinal\": "<<item.ordinal
+         <<", \"rva\": \""<<hex32(item.rva)<<"\", \"forwarded\": "<<(item.forwarded?"true":"false")
+         <<", \"forwarder\": \""<<escapeJson(item.forwarder)<<"\"}";
+    }
+    o<<"], \"base_relocations\": [";
+    for(std::size_t i=0;i<a.peMetadata.relocations.size();++i) {
+        const auto& item=a.peMetadata.relocations[i]; if(i)o<<", ";
+        o<<"{\"page_rva\": \""<<hex32(item.pageRva)<<"\", \"target_rva\": \""<<hex32(item.targetRva)
+         <<"\", \"type\": "<<unsigned(item.type)<<"}";
+    }
+    o<<"], \"debug_entries\": [";
+    for(std::size_t i=0;i<a.peMetadata.debugEntries.size();++i) {
+        const auto& item=a.peMetadata.debugEntries[i]; if(i)o<<", ";
+        o<<"{\"timestamp\": "<<item.timestamp<<", \"type\": "<<item.type
+         <<", \"size\": "<<item.sizeOfData<<", \"raw_pointer\": "<<item.pointerToRawData<<"}";
+    }
+    o<<"], \"tls\": {\"start_raw_data\": \""<<hex64(a.peMetadata.tls.startAddressOfRawData)
+     <<"\", \"end_raw_data\": \""<<hex64(a.peMetadata.tls.endAddressOfRawData)
+     <<"\", \"address_of_index\": \""<<hex64(a.peMetadata.tls.addressOfIndex)
+     <<"\", \"zero_fill\": "<<a.peMetadata.tls.sizeOfZeroFill<<", \"callbacks\": [";
+    for(std::size_t i=0;i<a.peMetadata.tls.callbackRvas.size();++i) {
+        if(i)o<<", ";
+        o<<"\""<<hex32(a.peMetadata.tls.callbackRvas[i])<<"\"";
+    }
+    o<<"]}},\n  \"imports\": [";
     for(std::size_t i=0;i<a.imports.size();++i){const auto& im=a.imports[i];if(i)o<<",";o<<"\n    {\"module\": \""<<escapeJson(im.module)<<"\", \"name\": \""<<escapeJson(im.name)<<"\", \"iat_rva\": \""<<hex32(im.iatRva)<<"\"}";}
     if(!a.imports.empty()) o<<"\n  ";
     o<<"],\n  \"functions\": [";
