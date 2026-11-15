@@ -71,6 +71,8 @@ int main() {
     assert(fa.value().functions[0].calls[0].resolved);
     const auto json=lulz::functionAnalysisToJson(fa.value(),parsed.value());
     assert(json.find("call_graph")!=std::string::npos);
+    assert(json.find("pe_metadata")!=std::string::npos);
+    assert(json.find("analysis_warnings")!=std::string::npos);
     assert(json.find("begin_rva")!=std::string::npos);
 
     // PUSH_NONVOL contributes one pointer-sized slot and records the register.
