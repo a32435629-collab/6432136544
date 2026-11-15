@@ -204,7 +204,7 @@ Generate the sample project:
 
     .\build\Release\lulz_builder.exe .\examples\builder\hello_project.json
 
-The Builder also recognizes Analyzer JSON produced by `dll_lulz analyze <file> --json report.json`. Passing that report directly generates a typed C++ data model for imports, functions and call edges, plus a small executable that prints the collected summary:
+The Builder also recognizes Analyzer JSON produced by `dll_lulz analyze <file> --json report.json`. Passing that report directly generates a typed C++ data model for imports, exports, functions, call edges, base relocations, debug records and TLS callbacks, preserves the source JSON, and creates a small executable that prints the collected summary:
 
     .\build\Release\dll_lulz.exe analyze .\sample.exe --json .\analysis.json
     .\build\Release\lulz_builder.exe .\analysis.json
