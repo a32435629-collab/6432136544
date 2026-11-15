@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "provider": "groq",
+  "modelName": "openai/gpt-oss-20b",
+  "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+  "modelPath": "",
+  "maxFunctions": 5000,
+  "maxImports": 5000,
+  "maxInstructions": 500000
+}
