@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10131c">
+  <meta name="description" content="DLL-LULZ-AI — анализ PE-файлов и управление лицензией.">
+  <title>DLL-LULZ-AI — License Portal</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0e15;--panel:#141a27;--line:#273247;--text:#edf2ff;--muted:#9aa8bf;--accent:#8b9cff;--good:#67d6a3;--bad:#ff8b8b}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 50% -20%,#27345b 0,transparent 55%),var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
+    .wrap{width:min(960px,calc(100% - 32px));margin:auto}.nav{display:flex;justify-content:space-between;align-items:center;padding:24px 0;border-bottom:1px solid var(--line)}
+    .brand{font-weight:800;letter-spacing:.08em}.tag{color:var(--accent);font-size:12px;border:1px solid #46558a;padding:4px 9px;border-radius:99px}
+    main{padding:72px 0 48px}.eyebrow{color:var(--accent);font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+    h1{font-size:clamp(38px,7vw,68px);line-height:1.03;letter-spacing:-.045em;margin:14px 0 18px;max-width:760px}
+    .lead{color:var(--muted);font-size:18px;max-width:640px}.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;margin-top:42px}
+    .card{background:linear-gradient(160deg,#192235,#111722);border:1px solid var(--line);border-radius:20px;padding:26px;box-shadow:0 18px 55px #0004}
+    h2{font-size:20px;margin:0 0 8px}.muted{color:var(--muted)}label{display:block;font-size:13px;color:var(--muted);margin:20px 0 8px}
+    input{width:100%;padding:14px 15px;border-radius:11px;border:1px solid #34425b;background:#0b111d;color:var(--text);font:inherit;outline:none}
+    input:focus{border-color:var(--accent)}button{margin-top:12px;border:0;border-radius:11px;padding:13px 18px;background:var(--accent);color:#0c1020;font-weight:800;font:inherit;cursor:pointer}
+    button:disabled{opacity:.6;cursor:wait}.status{min-height:24px;margin-top:14px;font-size:14px}.status.good{color:var(--good)}.status.bad{color:var(--bad)}
+    .features{display:grid;gap:14px;margin-top:22px}.feature{display:flex;gap:12px;align-items:flex-start}.dot{width:9px;height:9px;margin-top:8px;border-radius:50%;background:var(--accent);flex:none}
+    footer{border-top:1px solid var(--line);padding:22px 0 34px;color:var(--muted);font-size:13px}
+    @media(max-width:700px){main{padding-top:48px}.grid{grid-template-columns:1fr}.card{padding:21px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="nav"><div class="brand">DLL-LULZ-AI</div><span class="tag">0.7.0 · WEB PORTAL</span></header>
+    <main>
+      <div class="eyebrow">Analysis · Intelligence · Control</div>
+      <h1>Твой инструмент.<br>Твоя лицензия.</h1>
+      <p class="lead">Портал DLL-LULZ-AI для проверки тестовых лицензий. Здесь будет управление подпиской, устройствами и доступом к программе.</p>
+      <section class="grid">
+        <div class="card">
+          <h2>Проверить лицензию</h2>
+          <p class="muted">Введи тестовый ключ, чтобы проверить связь с облачным API.</p>
+          <form id="license-form">
+            <label for="license-key">Лицензионный ключ</label>
+            <input id="license-key" name="license_key" type="password" minlength="20" maxlength="160" autocomplete="off" placeholder="Вставь тестовый ключ" required>
+            <button id="submit" type="submit">Проверить ключ</button>
+          </form>
+          <div id="status" class="status" role="status" aria-live="polite"></div>
+        </div>
+        <div class="card">
+          <h2>Платформа 0.7.0</h2>
+          <div class="features">
+            <div class="feature"><span class="dot"></span><div><strong>Облачная проверка</strong><div class="muted">Проверка срока и статуса лицензии через HTTPS API.</div></div></div>
+            <div class="feature"><span class="dot"></span><div><strong>Подписка на 30 дней</strong><div class="muted">Планируемая модель доступа — месячная подписка.</div></div></div>
+            <div class="feature"><span class="dot"></span><div><strong>Личный кабинет</strong><div class="muted">Управление лицензией и устройствами — следующий этап.</div></div></div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>DLL-LULZ-AI · Prototype portal. Оплата и выпуск коммерческих лицензий пока отключены.</footer>
+  </div>
+  <script src="./config.js"></script>
+  <script>
+    const form = document.querySelector("#license-form");
+    const input = document.querySelector("#license-key");
+    const button = document.querySelector("#submit");
+    const status = document.querySelector("#status");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const base = window.DLL_LULZ_CONFIG?.API_BASE_URL;
+      if (!base || base.includes("YOUR-WORKER-URL")) {
+        status.className = "status bad";
+        status.textContent = "API ещё не настроен. Сначала разверни Cloudflare Worker.";
+        return;
+      }
+      button.disabled = true;
+      status.className = "status";
+      status.textContent = "Проверяем лицензию…";
+      try {
+        const response = await fetch(base.replace(/\/$/, "") + "/api/license/validate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ license_key: input.value })
+        });
+        const result = await response.json();
+        if (result.valid) {
+          status.className = "status good";
+          status.textContent = "Лицензия активна до " + new Date(result.expires_at).toLocaleString("ru-RU") + ".";
+        } else {
+          status.className = "status bad";
+          status.textContent = "Лицензия не подтверждена: " + (result.reason || result.error || "ошибка");
+        }
+      } catch {
+        status.className = "status bad";
+        status.textContent = "Не удалось связаться с API. Проверь адрес сервера и настройки CORS.";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
