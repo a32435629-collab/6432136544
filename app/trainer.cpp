@@ -100,8 +100,8 @@ bool loadDataset(const std::string& path, std::vector<Sample>& samples, std::str
     }
     if (samples.size() < 20) { error = "At least 20 labeled samples are required"; return false; }
     const auto benign = std::count_if(samples.begin(), samples.end(), [](const Sample& s) { return s.label == 0.0; });
-    if (benign < 2 || samples.size() - benign < 2) {
-        error = "Dataset must contain at least two benign and two malicious samples";
+    if (benign < 7 || samples.size() - benign < 7) {
+        error = "Dataset must contain at least seven benign and seven malicious samples for stratified train/validation/test splits";
         return false;
     }
     return true;
@@ -155,17 +155,26 @@ int main(int argc, char** argv) {
     }
 
     std::mt19937 rng(0x4c554c5a);
-    std::shuffle(samples.begin(), samples.end(), rng);
-    const std::size_t trainCount = samples.size() * 70 / 100;
-    const std::size_t validationCount = samples.size() * 15 / 100;
-    if (trainCount == 0 || validationCount == 0 || trainCount + validationCount >= samples.size()) {
-        std::cerr << "Dataset is too small for train/validation/test split\n";
-        return 2;
-    }
-    std::vector<Sample> training(samples.begin(), samples.begin() + static_cast<std::ptrdiff_t>(trainCount));
-    std::vector<Sample> validation(samples.begin() + static_cast<std::ptrdiff_t>(trainCount),
-                                   samples.begin() + static_cast<std::ptrdiff_t>(trainCount + validationCount));
-    std::vector<Sample> testing(samples.begin() + static_cast<std::ptrdiff_t>(trainCount + validationCount), samples.end());
+    std::vector<Sample> benign, malicious;
+    for (const auto& sample : samples)
+        (sample.label == 0.0 ? benign : malicious).push_back(sample);
+    std::shuffle(benign.begin(), benign.end(), rng);
+    std::shuffle(malicious.begin(), malicious.end(), rng);
+
+    std::vector<Sample> training, validation, testing;
+    const auto splitClass = [&](const std::vector<Sample>& group) {
+        const std::size_t trainEnd = group.size() * 70 / 100;
+        const std::size_t validationEnd = trainEnd + group.size() * 15 / 100;
+        training.insert(training.end(), group.begin(), group.begin() + static_cast<std::ptrdiff_t>(trainEnd));
+        validation.insert(validation.end(), group.begin() + static_cast<std::ptrdiff_t>(trainEnd),
+                          group.begin() + static_cast<std::ptrdiff_t>(validationEnd));
+        testing.insert(testing.end(), group.begin() + static_cast<std::ptrdiff_t>(validationEnd), group.end());
+    };
+    splitClass(benign);
+    splitClass(malicious);
+    std::shuffle(training.begin(), training.end(), rng);
+    std::shuffle(validation.begin(), validation.end(), rng);
+    std::shuffle(testing.begin(), testing.end(), rng);
 
     std::vector<double> means(kFeatureNames.size(), 0.0), scales(kFeatureNames.size(), 1.0);
     for (const auto& sample : training)
