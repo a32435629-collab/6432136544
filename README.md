@@ -150,4 +150,11 @@ A local neural checkpoint can be selected with
 `dll_lulz.exe ai <file> --model <checkpoint.lznn>`. The model must match the
 numeric feature-vector schema and order of this build. No pretrained malware
 classifier is shipped; a forward pass is reported as inference only, not as a
-malware verdict. The OpenAI provider uses Windows WinHTTP and reads OPENAI_API_KEY from the environment. The --openai CLI option sends extracted feature metadata, not executable bytes. The DeepSeek provider uses the compatible Chat Completions API, reads DEEPSEEK_API_KEY from the environment, and is selected with --deepseek (default model: deepseek-flash). It also sends extracted feature metadata only, not executable bytes.
+malware verdict. The OpenAI provider uses Windows WinHTTP and reads OPENAI_API_KEY from the environment. The --openai CLI option sends extracted feature metadata, not executable bytes. The DeepSeek provider uses the compatible Chat Completions API, reads DEEPSEEK_API_KEY from the environment, and is selected with --deepseek (default model: deepseek-flash). The Groq provider uses Groq's OpenAI-compatible Chat Completions endpoint, reads GROQ_API_KEY from the environment, and is selected with --groq (default model: openai/gpt-oss-20b). Both providers send extracted feature metadata only, not executable bytes.
+
+Groq CLI example (Windows PowerShell):
+
+    $env:GROQ_API_KEY = "YOUR_GROQ_API_KEY"
+    .\\build\\Release\\dll_lulz.exe ai .\\sample.exe --groq
+
+Groq endpoint: https://api.groq.com/openai/v1/chat/completions. Model IDs and free-tier limits are controlled by Groq and can change; check the Groq console for current availability.
