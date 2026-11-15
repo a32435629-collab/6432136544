@@ -87,7 +87,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
             af.chainedRecords.push_back(next);
             chain=std::move(nested.value());
         }
-        if(chain.chained) {
+        if(chainValid && chain.chained) {
             result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
                 " because CHAININFO nesting exceeds 32 levels");
             chainValid=false;
