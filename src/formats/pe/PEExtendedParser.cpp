@@ -154,6 +154,40 @@ void parseRelocations(std::span<const std::uint8_t> bytes, PEExtendedInfo& out) 
     if (remaining!=0) out.warnings.push_back("trailing bytes in base relocation directory");
 }
 
+void parseCertificates(std::span<const std::uint8_t> bytes, PEExtendedInfo& out) {
+    const auto& directory = out.directories[4];
+    if (!directory.present()) return;
+    const std::uint64_t start = directory.rva; // Security directory uses a file offset, not an RVA.
+    if (start > bytes.size() || directory.size > bytes.size() - static_cast<std::size_t>(start)) {
+        out.warnings.push_back("certificate table points outside file bounds");
+        return;
+    }
+    BinaryReader reader(bytes);
+    std::size_t cursor = static_cast<std::size_t>(start);
+    std::size_t remaining = directory.size;
+    while (remaining >= 8) {
+        PECertificateEntry item;
+        if (!readU32(reader, cursor, item.length) ||
+            !readU16(reader, cursor + 4, item.revision) ||
+            !readU16(reader, cursor + 6, item.certificateType) ||
+            item.length < 8 || item.length > remaining) {
+            out.warnings.push_back("invalid WIN_CERTIFICATE record");
+            return;
+        }
+        item.fileOffset = static_cast<std::uint32_t>(cursor);
+        out.certificates.push_back(item);
+        const std::size_t alignedLength = (std::size_t(item.length) + 7u) & ~std::size_t(7u);
+        if (alignedLength > remaining) {
+            if (item.length != remaining)
+                out.warnings.push_back("certificate alignment exceeds remaining table size");
+            return;
+        }
+        cursor += alignedLength;
+        remaining -= alignedLength;
+    }
+    if (remaining != 0) out.warnings.push_back("trailing bytes in certificate table");
+}
+
 void parseDebug(std::span<const std::uint8_t> bytes, PEExtendedInfo& out) {
     const auto& directory=out.directories[6];
     if (!directory.present()) return;
@@ -259,8 +293,10 @@ Result<PEExtendedInfo> parsePEExtended(std::span<const std::uint8_t> bytes) {
     for (std::uint32_t i=0;i<count;++i) {
         readU32(reader,optional+directoryOffset+std::size_t(i)*8,out.directories[i].rva);
         readU32(reader,optional+directoryOffset+std::size_t(i)*8+4,out.directories[i].size);
+        out.directories[i].usesFileOffset = (i == 4);
     }
     parseExports(bytes,out);
+    parseCertificates(bytes,out);
     parseRelocations(bytes,out);
     parseDebug(bytes,out);
     parseTls(bytes,out);
