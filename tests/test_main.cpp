@@ -4,6 +4,7 @@
 #include "lulz/hex/HexParser.hpp"
 #include "lulz/analysis/EntropyAnalyzer.hpp"
 #include "lulz/formats/pe/PEParser.hpp"
+#include "lulz/formats/pe/PEExtendedParser.hpp"
 #include "lulz/formats/pe/UnwindInfo.hpp"
 #include "lulz/analysis/FunctionAnalysis.hpp"
 #include <array>
@@ -39,6 +40,10 @@ int main() {
     pe[0x404]=4; pe[0x405]=0x32;
     auto parsed=lulz::parsePE(pe);
     assert(parsed && parsed.value().is64);
+    auto extended = lulz::parsePEExtended(pe);
+    assert(extended && extended.value().image.is64);
+    assert(extended.value().directories[3].rva == 0x1000);
+    assert(extended.value().directories[3].size == 12);
     auto runtime=lulz::parsePEExceptionDirectory(pe, parsed.value());
     assert(runtime && runtime.value().size()==1);
     assert(runtime.value()[0].beginRva==0x1100);
