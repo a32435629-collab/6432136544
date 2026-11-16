@@ -10,7 +10,7 @@
 
 namespace lulz::ai::builder {
 
-inline constexpr std::size_t kBuilderFeatureCount = 17;
+inline constexpr std::size_t kBuilderFeatureCount = 18;
 
 struct BuilderTrainingOptions {
     neural::TrainingOptions network;
