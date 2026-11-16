@@ -67,6 +67,174 @@ bool readU64(const BinaryReader& reader, std::size_t offset, std::uint64_t& valu
     return true;
 }
 
+
+std::optional<std::uint32_t> delayFieldToRva(
+    std::uint32_t value,
+    bool rvaBased,
+    const PEInfo& image
+) {
+    if (value == 0) return std::uint32_t{0};
+    if (rvaBased) return value;
+    if (std::uint64_t(value) < image.imageBase) return std::nullopt;
+    const std::uint64_t rva = std::uint64_t(value) - image.imageBase;
+    if (rva > std::numeric_limits<std::uint32_t>::max()) return std::nullopt;
+    return static_cast<std::uint32_t>(rva);
+}
+
+void parseDelayImports(std::span<const std::uint8_t> bytes, PEExtendedInfo& out) {
+    constexpr std::size_t descriptorSize = 32;
+    constexpr std::size_t maxDescriptors = 65536;
+    constexpr std::size_t maxThunks = 65536;
+    const auto& directory = out.directories[13]; // IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT
+    if (!directory.present()) return;
+    if (directory.size < descriptorSize) {
+        out.warnings.push_back("delay import directory is smaller than one descriptor");
+        return;
+    }
+    if (directory.size % descriptorSize != 0)
+        out.warnings.push_back("delay import directory size is not a multiple of 32");
+
+    const auto directoryOffset = mapRva(bytes, out.image, directory.rva, directory.size);
+    if (!directoryOffset) {
+        out.warnings.push_back("delay import directory is outside section data");
+        return;
+    }
+
+    const std::size_t descriptorCount = directory.size / descriptorSize;
+    if (descriptorCount > maxDescriptors) {
+        out.warnings.push_back("delay import descriptor count exceeds safety limit");
+        return;
+    }
+
+    BinaryReader reader(bytes);
+    const std::size_t pointerSize = out.image.is64 ? 8 : 4;
+    const std::uint64_t ordinalFlag = out.image.is64
+        ? 0x8000000000000000ull
+        : 0x80000000ull;
+    bool foundTerminator = false;
+
+    for (std::size_t d = 0; d < descriptorCount; ++d) {
+        const std::size_t descriptorOffset = *directoryOffset + d * descriptorSize;
+        std::uint32_t fields[8]{};
+        bool fieldsValid = true;
+        bool allZero = true;
+        for (std::size_t field = 0; field < 8; ++field) {
+            if (!readU32(reader, descriptorOffset + field * 4, fields[field])) {
+                fieldsValid = false;
+                break;
+            }
+            allZero = allZero && fields[field] == 0;
+        }
+        if (!fieldsValid) {
+            out.warnings.push_back("truncated delay import descriptor");
+            return;
+        }
+        if (allZero) {
+            foundTerminator = true;
+            break;
+        }
+
+        const std::uint32_t attributes = fields[0];
+        if ((attributes & ~1u) != 0) {
+            out.warnings.push_back("delay import descriptor uses unsupported attribute flags");
+            return;
+        }
+        const bool rvaBased = (attributes & 1u) != 0;
+        const auto nameRva = delayFieldToRva(fields[1], rvaBased, out.image);
+        const auto iatRva = delayFieldToRva(fields[3], rvaBased, out.image);
+        auto intRva = delayFieldToRva(fields[4], rvaBased, out.image);
+        if (!nameRva || !iatRva || !intRva || *nameRva == 0 || *iatRva == 0) {
+            out.warnings.push_back("delay import descriptor contains an invalid name/IAT/INT address");
+            return;
+        }
+        if (*intRva == 0) intRva = iatRva;
+
+        const auto module = readString(bytes, out.image, *nameRva);
+        if (!module) {
+            out.warnings.push_back("delay import module name is invalid or unterminated");
+            return;
+        }
+
+        bool thunkTerminated = false;
+        for (std::size_t t = 0; t < maxThunks; ++t) {
+            const std::uint64_t thunkAddress = std::uint64_t(*intRva) + std::uint64_t(t) * pointerSize;
+            const std::uint64_t iatAddress = std::uint64_t(*iatRva) + std::uint64_t(t) * pointerSize;
+            if (thunkAddress > std::numeric_limits<std::uint32_t>::max() ||
+                iatAddress > std::numeric_limits<std::uint32_t>::max()) {
+                out.warnings.push_back("delay import thunk RVA overflow");
+                return;
+            }
+
+            const auto thunkOffset = mapRva(
+                bytes, out.image, static_cast<std::uint32_t>(thunkAddress), pointerSize);
+            if (!thunkOffset) {
+                out.warnings.push_back("delay import name table leaves mapped section data");
+                return;
+            }
+
+            std::uint64_t value = 0;
+            if (out.image.is64) {
+                if (!readU64(reader, *thunkOffset, value)) {
+                    out.warnings.push_back("truncated 64-bit delay import thunk");
+                    return;
+                }
+            } else {
+                std::uint32_t value32 = 0;
+                if (!readU32(reader, *thunkOffset, value32)) {
+                    out.warnings.push_back("truncated 32-bit delay import thunk");
+                    return;
+                }
+                value = value32;
+            }
+            if (value == 0) {
+                thunkTerminated = true;
+                break;
+            }
+
+            ImportSymbol symbol;
+            symbol.module = *module;
+            symbol.iatRva = static_cast<std::uint32_t>(iatAddress);
+            if ((value & ordinalFlag) != 0) {
+                symbol.byOrdinal = true;
+                symbol.ordinal = static_cast<std::uint16_t>(value & 0xffffu);
+                symbol.name = "#" + std::to_string(symbol.ordinal);
+            } else {
+                if (value > std::numeric_limits<std::uint32_t>::max()) {
+                    out.warnings.push_back("delay import name thunk is outside RVA range");
+                    return;
+                }
+                const auto importByNameRva = delayFieldToRva(
+                    static_cast<std::uint32_t>(value), rvaBased, out.image);
+                if (!importByNameRva || *importByNameRva > std::numeric_limits<std::uint32_t>::max() - 2u) {
+                    out.warnings.push_back("delay import hint/name RVA is invalid");
+                    return;
+                }
+                const auto hintOffset = mapRva(bytes, out.image, *importByNameRva, 2);
+                if (!hintOffset) {
+                    out.warnings.push_back("delay import hint/name entry is outside section data");
+                    return;
+                }
+                const auto name = readString(
+                    bytes, out.image, static_cast<std::uint32_t>(*importByNameRva + 2u));
+                if (!name) {
+                    out.warnings.push_back("delay import symbol name is invalid or unterminated");
+                    return;
+                }
+                symbol.name = *name;
+            }
+            out.delayImports.push_back(std::move(symbol));
+        }
+
+        if (!thunkTerminated) {
+            out.warnings.push_back("delay import thunk table has no null terminator");
+            return;
+        }
+    }
+
+    if (!foundTerminator)
+        out.warnings.push_back("delay import descriptor table has no null terminator");
+}
+
 void parseExports(std::span<const std::uint8_t> bytes, PEExtendedInfo& out) {
     const auto& directory = out.directories[0];
     if (!directory.present()) return;
@@ -296,6 +464,7 @@ Result<PEExtendedInfo> parsePEExtended(std::span<const std::uint8_t> bytes) {
         out.directories[i].usesFileOffset = (i == 4);
     }
     parseExports(bytes,out);
+    parseDelayImports(bytes,out);
     parseCertificates(bytes,out);
     parseRelocations(bytes,out);
     parseDebug(bytes,out);
