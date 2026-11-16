@@ -183,6 +183,11 @@ void showPage(int page) {
                     wchar_t pair[4]{}; swprintf_s(pair, L"%02X ", byte); out << pair;
                 }
                 out << L"\r\n";
+                if (!g_analysis->entryPointInstructions.empty()) {
+                    out << L"ДЕКОДИРОВАННЫЕ ИНСТРУКЦИИ ТОЧКИ ВХОДА\r\n";
+                    for (const auto& instruction : g_analysis->entryPointInstructions)
+                        out << L"  " << widen(instruction) << L"\r\n";
+                }
             }
         }
     }
