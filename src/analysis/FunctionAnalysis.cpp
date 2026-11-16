@@ -47,6 +47,50 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
     for (const auto& warning : pe.warnings)
         result.warnings.push_back("PE section: " + warning);
 
+    // Additional structural checks that require the complete section table.
+    // These are diagnostics only: unusual flags/layouts are not proof of corruption.
+    constexpr std::uint32_t kMemExecute = 0x20000000u;
+    constexpr std::uint32_t kMemRead = 0x40000000u;
+    constexpr std::uint32_t kMemWrite = 0x80000000u;
+    bool entryPointMapped = false;
+    for (std::size_t i = 0; i < pe.sections.size(); ++i) {
+        const auto& section = pe.sections[i];
+        const std::uint64_t span = std::max(section.virtualSize, section.rawSize);
+        const bool executable = (section.characteristics & kMemExecute) != 0;
+        const bool writable = (section.characteristics & kMemWrite) != 0;
+        const std::string label = section.name.empty()
+            ? ("section " + std::to_string(i))
+            : ("section " + section.name + " (index " + std::to_string(i) + ")");
+        if (executable && writable) {
+            result.warnings.push_back("PE structure: " + label +
+                " is both writable and executable (W+X permissions)");
+        }
+        if (executable && section.rawSize == 0) {
+            result.warnings.push_back("PE structure: " + label +
+                " is executable but has no raw file data");
+        }
+        if (pe.entryPoint != 0 && span != 0 &&
+            pe.entryPoint >= section.virtualAddress &&
+            std::uint64_t(pe.entryPoint) - section.virtualAddress < span) {
+            entryPointMapped = true;
+            if (!executable) {
+                result.warnings.push_back("PE structure: entry point is located in " +
+                    label + ", which is not marked executable");
+            }
+            const std::uint64_t delta =
+                std::uint64_t(pe.entryPoint) - section.virtualAddress;
+            if (delta >= section.rawSize) {
+                result.warnings.push_back("PE structure: entry point is in the virtual-only tail of " +
+                    label + " and has no corresponding file bytes");
+            }
+        }
+        (void)kMemRead; // Retained as a named PE characteristic for future checks.
+    }
+    if (pe.entryPoint != 0 && !entryPointMapped) {
+        result.warnings.push_back("PE structure: entry point RVA " + hex32(pe.entryPoint) +
+            " is not covered by any section");
+    }
+
     auto extendedMetadata = parsePEExtended(bytes);
     if (extendedMetadata) {
         result.peMetadata = std::move(extendedMetadata.value());
