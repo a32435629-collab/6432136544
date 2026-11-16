@@ -83,11 +83,25 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     delayPe[delaySection + 3] = 'd';
     delayPe[delaySection + 4] = 'a';
     delayPe[delaySection + 5] = 't';
-    dw32(delaySection + 8, 0x200);
+    dw32(delaySection + 8, 0x400); // virtual range extends beyond raw data
     dw32(delaySection + 12, 0x2000);
     dw32(delaySection + 16, 0x200);
     dw32(delaySection + 20, 0x600);
     dw32(delaySection + 36, 0x40000040);
+
+    // A third section overlaps only the virtual-only tail of .didat.
+    // RVA mapping must fail closed rather than silently map through the overlap.
+    dw16(0x86, 3);
+    const std::size_t overlapSection = sh + 80;
+    delayPe[overlapSection] = '.';
+    delayPe[overlapSection + 1] = 'o';
+    delayPe[overlapSection + 2] = 'v';
+    delayPe[overlapSection + 3] = 'l';
+    dw32(overlapSection + 8, 0x100);
+    dw32(overlapSection + 12, 0x2200);
+    dw32(overlapSection + 16, 0x100);
+    dw32(overlapSection + 20, 0x700);
+    dw32(overlapSection + 36, 0x40000040);
     const std::size_t delayDirectoryEntry = 0x98 + 112 + 13 * 8;
     dw32(delayDirectoryEntry, 0x2000);
     dw32(delayDirectoryEntry + 4, 64);
@@ -113,11 +127,24 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
         delayPe[0x6a2 + i] = static_cast<std::uint8_t>(delayName[i]);
 
     auto delayParsed = lulz::parsePE(delayPe);
-    assert(delayParsed && delayParsed.value().sectionCount == 2);
+    assert(delayParsed && delayParsed.value().sectionCount == 3);
     auto delayExtended = lulz::parsePEExtended(delayPe);
     assert(delayExtended);
     assert(delayExtended.value().directories[13].rva == 0x2000);
     assert(delayExtended.value().delayImports.size() == 2);
+    // Export directory placed in the overlapping virtual-only tail must not
+    // be read from the later section's raw bytes.
+    dw32(0x98 + 112, 0x2200);
+    dw32(0x98 + 112 + 4, 40);
+    auto overlappingRva = lulz::parsePEExtended(delayPe);
+    assert(overlappingRva);
+    bool rejectedVirtualTailMapping = false;
+    for (const auto& warning : overlappingRva.value().warnings)
+        rejectedVirtualTailMapping = rejectedVirtualTailMapping ||
+            warning.find("export directory is outside mapped section data") != std::string::npos;
+    assert(rejectedVirtualTailMapping);
+    assert(overlappingRva.value().exports.empty());
+
     assert(delayExtended.value().delayImports[0].module == "delaytest.dll");
     assert(delayExtended.value().delayImports[0].name == "DelayFunc");
     assert(delayExtended.value().delayImports[0].iatRva == 0x2088);
