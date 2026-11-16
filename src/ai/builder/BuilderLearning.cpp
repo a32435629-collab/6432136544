@@ -109,6 +109,17 @@ std::vector<double> BuilderLearning::extractFeatures(const JsonValue& report) {
     const auto* certificates = child(metadata, "certificates");
     const auto* tls = child(metadata, "tls");
     const auto* callbacks = child(tls, "callbacks");
+    const auto* directories = child(metadata, "data_directories");
+    bool managedAssembly = false;
+    if (const auto* ds = directories ? directories->array() : nullptr) {
+        for (const auto& directory : *ds) {
+            if (number(child(&directory, "index"), -1.0) == 14.0 &&
+                number(child(&directory, "size")) > 0.0) {
+                managedAssembly = true;
+                break;
+            }
+        }
+    }
     const auto* warnings = child(&report, "analysis_warnings");
     if (!warnings) warnings = child(&report, "warnings");
 
@@ -158,7 +169,8 @@ std::vector<double> BuilderLearning::extractFeatures(const JsonValue& report) {
         scaledCount(missingImportFields),
         scaledCount(malformedRanges),
         scaledCount(totalCalls),
-        totalCalls == 0 ? 0.0 : static_cast<double>(unresolvedCalls) / static_cast<double>(totalCalls)
+        totalCalls == 0 ? 0.0 : static_cast<double>(unresolvedCalls) / static_cast<double>(totalCalls),
+        managedAssembly ? 1.0 : 0.0
     };
 }
 
