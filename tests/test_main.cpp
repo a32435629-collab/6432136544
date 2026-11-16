@@ -330,6 +330,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(heuristic.value().heuristicCandidates[0].beginRva == 0x1000);
     assert(heuristic.value().entryPointSection == ".pdata");
     assert(heuristic.value().entryPointBytes.size() == 32);
+    assert(heuristic.value().entryPointInstructions.size() >= 2);
     const auto heuristicJson = lulz::functionAnalysisToJson(heuristic.value(), heuristicInfo.value());
     assert(heuristicJson.find("heuristic_function_candidates") != std::string::npos);
     assert(heuristicJson.find("entry_point") != std::string::npos);
