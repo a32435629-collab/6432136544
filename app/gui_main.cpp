@@ -135,6 +135,8 @@ void showPage(int page) {
             << L"Точка входа (RVA): " << hex32(g_pe->entryPoint) << L"\r\n"
             << L"Image Base: " << hex64(g_pe->imageBase) << L"\r\n"
             << L"Секций: " << g_pe->sections.size() << L"\r\n"
+            << L"Точка входа находится в секции: " << (g_analysis && !g_analysis->entryPointSection.empty() ? widen(g_analysis->entryPointSection) : L"не определена") << L"\r\n"
+            << L"Байты точки входа: " << (g_analysis && !g_analysis->entryPointBytes.empty() ? L"доступны во вкладке Функции" : L"недоступны") << L"\r\n"
             << L"Функций: " << (g_analysis ? number(g_analysis->functions.size()) : L"не определено") << L"\r\n"
             << L"Импортов: " << (g_analysis ? number(g_analysis->imports.size()) : L"не определено") << L"\r\n"
             << L"Неразрешённых вызовов: " << (g_analysis ? number(g_analysis->unresolvedCalls) : L"не определено") << L"\r\n"
@@ -152,7 +154,7 @@ void showPage(int page) {
     } else if (page == 2) {
         out << L"СЕКЦИИ PE\r\n\r\nИмя\tRVA\tРазмер в памяти\tСмещение в файле\tРазмер в файле\r\n";
         for (const auto& s : g_pe->sections)
-            out << widen(s.name) << L"\t" << hex32(s.virtualAddress) << L"\t" << number(std::max(s.virtualSize,s.rawSize))
+            out << (s.name.empty() ? L"<без имени>" : widen(s.name)) << L"\t" << hex32(s.virtualAddress) << L"\t" << number(std::max(s.virtualSize,s.rawSize))
                 << L"\t" << hex32(s.rawOffset) << L"\t" << number(s.rawSize) << L"\r\n";
         out << L"\r\nRVA — адрес относительно начала образа в памяти. Смещение в файле указывает положение данных на диске.";
     } else if (page == 3) {
@@ -167,7 +169,22 @@ void showPage(int page) {
             out << hex32(f.range.beginRva) << L"\t" << hex32(f.range.endRva) << L"\t"
                 << number(f.instructions.size()) << L"\t" << number(f.calls.size()) << L"\t"
                 << number(f.unwind.stackAllocation) << L" байт\r\n";
-        if (!g_analysis || g_analysis->functions.empty()) out << L"Функции не найдены. Для некоторых архитектур и форматов этот этап анализа ограничен.";
+        if (!g_analysis || g_analysis->functions.empty()) {
+            out << L"Подтверждённые функции не найдены.\r\n";
+            if (g_analysis && !g_analysis->heuristicCandidates.empty()) {
+                out << L"\r\nПРЕДПОЛАГАЕМЫЕ КАНДИДАТЫ (НЕ ПОДТВЕРЖДЕНЫ)\r\n";
+                for (const auto& candidate : g_analysis->heuristicCandidates)
+                    out << hex32(candidate.beginRva) << L"\t" << widen(candidate.reason) << L"\r\n";
+            }
+            if (g_analysis && !g_analysis->entryPointBytes.empty()) {
+                out << L"\r\nТОЧКА ВХОДА: " << hex32(g_pe->entryPoint)
+                    << L" · секция: " << widen(g_analysis->entryPointSection) << L"\r\nБайты: ";
+                for (auto byte : g_analysis->entryPointBytes) {
+                    wchar_t pair[4]{}; swprintf_s(pair, L"%02X ", byte); out << pair;
+                }
+                out << L"\r\n";
+            }
+        }
     }
     setContent(out.str());
 }
