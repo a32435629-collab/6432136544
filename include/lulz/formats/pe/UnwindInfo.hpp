@@ -40,6 +40,8 @@ struct UnwindInfo {
     std::vector<std::string> savedRegisters;
     std::vector<std::string> savedXmmRegisters;
     std::vector<UnwindOperation> operations;
+    // Non-fatal compatibility diagnostics for unusual but interpretable metadata.
+    std::vector<std::string> warnings;
 
     bool hasExceptionHandler{};
     bool hasTerminationHandler{};
