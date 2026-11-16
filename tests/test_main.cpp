@@ -49,7 +49,6 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     // Structural section anomalies are retained as diagnostics instead of
     // making the whole image unparseable.
     auto malformedSection = pe;
-    w32(sh + 16, 0x400);
     malformedSection[sh + 16] = 0x00;
     malformedSection[sh + 17] = 0x04;
     malformedSection[sh + 18] = 0x00;
@@ -58,7 +57,6 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(malformedSectionInfo);
     assert(!malformedSectionInfo.value().warnings.empty());
     assert(malformedSectionInfo.value().warnings[0].find("extends beyond end of file") != std::string::npos);
-    w32(sh + 16, 0x300);
     auto extended = lulz::parsePEExtended(pe);
     assert(extended && extended.value().image.is64);
     assert(extended.value().directories[3].rva == 0x1000);
