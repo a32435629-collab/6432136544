@@ -140,11 +140,40 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(malformedDelay);
     assert(malformedDelay.value().delayImports.empty());
     assert(!malformedDelay.value().warnings.empty());
-    auto runtime=lulz::parsePEExceptionDirectory(pe, parsed.value());
-    assert(runtime && runtime.value().size()==1);
+
     assert(runtime.value()[0].beginRva==0x1100);
     assert(runtime.value()[0].endRva==0x1150);
     assert(runtime.value()[0].unwindInfoRva==0x1200);
+    // Version 2 epilog descriptors are one slot each; the first stores
+    // length/AtEnd, later descriptors store a 12-bit offset.
+    pe[0x400]=0x02; pe[0x401]=4; pe[0x402]=3; pe[0x403]=0;
+    pe[0x404]=0x01; pe[0x405]=0x16; // EPILOG: length=1, AtEnd=yes
+    pe[0x406]=0x0b; pe[0x407]=0x06; // EPILOG: offset=0x0b
+    pe[0x408]=0x04; pe[0x409]=0x82; // ALLOC_SMALL: 72 bytes
+    auto unwindV2=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
+    assert(unwindV2 && unwindV2.value().version==2);
+    assert(unwindV2.value().operations.size()==3);
+    assert(unwindV2.value().operations[0].name=="UWOP_EPILOG");
+    assert(unwindV2.value().operations[0].value==1);
+    assert(unwindV2.value().operations[1].name=="UWOP_EPILOG");
+    assert(unwindV2.value().operations[1].value==0x0b);
+    assert(unwindV2.value().operations[2].name=="UWOP_ALLOC_SMALL");
+    assert(unwindV2.value().stackAllocation==72);
+
+    // Version 2 spare opcode occupies three slots; its payload must not be
+    // decoded as independent unwind operations.
+    pe[0x400]=0x02; pe[0x401]=4; pe[0x402]=4; pe[0x403]=0;
+    pe[0x404]=0x00; pe[0x405]=0x07; // UWOP_SPARE_CODE
+    pe[0x406]=0xff; pe[0x407]=0xff;
+    pe[0x408]=0xff; pe[0x409]=0xff;
+    pe[0x40a]=0x04; pe[0x40b]=0x22; // ALLOC_SMALL: 24 bytes
+    auto spareV2=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
+    assert(spareV2 && spareV2.value().operations.size()==2);
+    assert(spareV2.value().operations[0].name=="UWOP_SPARE_CODE");
+    assert(spareV2.value().operations[1].name=="UWOP_ALLOC_SMALL");
+    assert(spareV2.value().stackAllocation==24);
+
+
     auto unwind=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
     assert(unwind && unwind.value().version==1);
     assert(unwind.value().stackAllocation==32);
