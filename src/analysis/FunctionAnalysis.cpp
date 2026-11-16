@@ -44,6 +44,9 @@ const AnalyzedFunction* containing(const std::vector<AnalyzedFunction>& fs, std:
 Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes, const PEInfo& pe) {
     if(!pe.is64 || pe.machine!=0x8664) return Result<FunctionAnalysis>::failure("Function Analysis Engine currently supports x64 PE32+ only");
     FunctionAnalysis result;
+    for (const auto& warning : pe.warnings)
+        result.warnings.push_back("PE section: " + warning);
+
     auto extendedMetadata = parsePEExtended(bytes);
     if (extendedMetadata) {
         result.peMetadata = std::move(extendedMetadata.value());
