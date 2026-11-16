@@ -52,6 +52,94 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(extended.value().directories[4].usesFileOffset);
     assert(extended.value().certificates.size() == 1);
     assert(extended.value().certificates[0].certificateType == 2);
+
+    // A second section holds a synthetic RVA-based delay import directory.
+    auto delayPe = pe;
+    delayPe.resize(0x800, 0);
+    auto dw16 = [&](std::size_t o, std::uint16_t v) {
+        delayPe[o] = std::uint8_t(v);
+        delayPe[o + 1] = std::uint8_t(v >> 8);
+    };
+    auto dw32 = [&](std::size_t o, std::uint32_t v) {
+        for (int n = 0; n < 4; ++n) delayPe[o + n] = std::uint8_t(v >> (n * 8));
+    };
+    dw16(0x86, 2);
+    const std::size_t delaySection = sh + 40;
+    delayPe[delaySection] = '.';
+    delayPe[delaySection + 1] = 'd';
+    delayPe[delaySection + 2] = 'i';
+    delayPe[delaySection + 3] = 'd';
+    delayPe[delaySection + 4] = 'a';
+    delayPe[delaySection + 5] = 't';
+    dw32(delaySection + 8, 0x200);
+    dw32(delaySection + 12, 0x2000);
+    dw32(delaySection + 16, 0x200);
+    dw32(delaySection + 20, 0x600);
+    dw32(delaySection + 36, 0x40000040);
+    const std::size_t delayDirectoryEntry = 0x98 + 112 + 13 * 8;
+    dw32(delayDirectoryEntry, 0x2000);
+    dw32(delayDirectoryEntry + 4, 64);
+    // ImgDelayDescr: grAttrs=RVA, name=0x2040, IAT=0x2070, INT=0x2060.
+    dw32(0x600, 1);
+    dw32(0x604, 0x2040);
+    dw32(0x60c, 0x2070);
+    dw32(0x610, 0x2060);
+    // The second 32-byte descriptor is the required null terminator.
+    const char delayModule[] = "delaytest.dll";
+    for (std::size_t i = 0; i < sizeof(delayModule); ++i)
+        delayPe[0x640 + i] = static_cast<std::uint8_t>(delayModule[i]);
+    // IMAGE_THUNK_DATA64: one name import, one ordinal import (#42), then zero.
+    auto dw64 = [&](std::size_t o, std::uint64_t v) {
+        for (int n = 0; n < 8; ++n) delayPe[o + n] = std::uint8_t(v >> (n * 8));
+    };
+    dw64(0x660, 0x2080);
+    dw64(0x668, 0x800000000000002aull);
+    dw64(0x670, 0);
+    dw16(0x680, 7); // hint
+    const char delayName[] = "DelayFunc";
+    for (std::size_t i = 0; i < sizeof(delayName); ++i)
+        delayPe[0x682 + i] = static_cast<std::uint8_t>(delayName[i]);
+
+    auto delayParsed = lulz::parsePE(delayPe);
+    assert(delayParsed && delayParsed.value().sectionCount == 2);
+    auto delayExtended = lulz::parsePEExtended(delayPe);
+    assert(delayExtended);
+    assert(delayExtended.value().directories[13].rva == 0x2000);
+    assert(delayExtended.value().delayImports.size() == 2);
+    assert(delayExtended.value().delayImports[0].module == "delaytest.dll");
+    assert(delayExtended.value().delayImports[0].name == "DelayFunc");
+    assert(delayExtended.value().delayImports[0].iatRva == 0x2070);
+    assert(!delayExtended.value().delayImports[0].byOrdinal);
+    assert(delayExtended.value().delayImports[1].byOrdinal);
+    assert(delayExtended.value().delayImports[1].ordinal == 42);
+    assert(delayExtended.value().delayImports[1].name == "#42");
+
+    // A call through the delay-IAT slot must resolve to the delay import metadata.
+    delayPe[0x300] = 0xff;
+    delayPe[0x301] = 0x15;
+    delayPe[0x302] = 0x6a; // 0x2070 - (0x1100 + 6) = 0x0f6a
+    delayPe[0x303] = 0x0f;
+    delayPe[0x304] = 0;
+    delayPe[0x305] = 0;
+    auto delayAnalysis = lulz::analyzePEFunctions(delayPe, delayParsed.value());
+    assert(delayAnalysis && delayAnalysis.value().functions.size() == 1);
+    assert(delayAnalysis.value().functions[0].calls.size() == 1);
+    assert(delayAnalysis.value().functions[0].calls[0].resolved);
+    assert(delayAnalysis.value().functions[0].calls[0].target == "delaytest.dll!DelayFunc");
+    const auto delayJson = lulz::functionAnalysisToJson(delayAnalysis.value(), delayParsed.value());
+    assert(delayJson.find("\\"delay_imports\\"") != std::string::npos);
+    assert(delayJson.find("DelayFunc") != std::string::npos);
+
+    // Malformed delay descriptor addresses are reported without crashing.
+    auto malformedDelayPe = delayPe;
+    malformedDelayPe[0x604] = 0xff;
+    malformedDelayPe[0x605] = 0xff;
+    malformedDelayPe[0x606] = 0xff;
+    malformedDelayPe[0x607] = 0xff;
+    auto malformedDelay = lulz::parsePEExtended(malformedDelayPe);
+    assert(malformedDelay);
+    assert(malformedDelay.value().delayImports.empty());
+    assert(!malformedDelay.value().warnings.empty());
     auto runtime=lulz::parsePEExceptionDirectory(pe, parsed.value());
     assert(runtime && runtime.value().size()==1);
     assert(runtime.value()[0].beginRva==0x1100);
