@@ -199,6 +199,25 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(unwind.value().operations[0].name=="UWOP_ALLOC_SMALL");
     assert(unwind.value().explicitAllocation==32);
 
+    // Some Windows system images duplicate FrameOffset in the reserved
+    // UWOP_SET_FPREG OpInfo nibble. Accept only this matching compatibility
+    // encoding, report it, and continue to treat FrameOffset as authoritative.
+    pe[0x400]=0x01; pe[0x401]=4; pe[0x402]=1; pe[0x403]=0x35;
+    pe[0x404]=4; pe[0x405]=0x33; // CodeOffset=4, UWOP_SET_FPREG, OpInfo=3
+    auto compatibleSetFrame=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
+    assert(compatibleSetFrame);
+    assert(compatibleSetFrame.value().operations.size()==1);
+    assert(compatibleSetFrame.value().operations[0].name=="UWOP_SET_FPREG");
+    assert(compatibleSetFrame.value().warnings.size()==1);
+    assert(compatibleSetFrame.value().warnings[0].find("matching FrameOffset")!=std::string::npos);
+
+    // A different nonzero reserved value remains malformed.
+    pe[0x405]=0x23; // OpInfo=2, FrameOffset=3
+    assert(!lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]));
+
+    // Restore the normal fixture for subsequent analysis tests.
+    pe[0x403]=0; pe[0x404]=4; pe[0x405]=0x32;
+
     // Function analysis consumes .pdata/.xdata and emits direct-call graph edges.
     pe[0x300]=0xe8; pe[0x301]=0x0b; pe[0x302]=0; pe[0x303]=0; pe[0x304]=0; // call 0x1110
     auto fa=lulz::analyzePEFunctions(pe,parsed.value());
