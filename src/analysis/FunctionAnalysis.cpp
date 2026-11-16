@@ -82,9 +82,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
     }
     if (!result.entryPointBytes.empty()) {
         ZydisDecoder epDecoder;
-        ZydisFormatter epFormatter;
-        if (ZYAN_SUCCESS(ZydisDecoderInit(&epDecoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64)) &&
-            ZYAN_SUCCESS(ZydisFormatterInit(&epFormatter, ZYDIS_FORMATTER_STYLE_INTEL))) {
+        if (ZYAN_SUCCESS(ZydisDecoderInit(&epDecoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64))) {
             std::size_t cursor = 0;
             while (cursor < result.entryPointBytes.size() && result.entryPointInstructions.size() < 8) {
                 ZydisDecodedInstruction instruction{};
@@ -93,13 +91,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
                     result.entryPointBytes.data() + cursor,
                     result.entryPointBytes.size() - cursor, &instruction, operands);
                 if (!ZYAN_SUCCESS(status) || instruction.length == 0) break;
-                char text[128]{};
-                const ZyanU64 ip = pe.imageBase + pe.entryPoint + cursor;
-                if (ZYAN_SUCCESS(ZydisFormatterFormatInstruction(&epFormatter, &instruction,
-                    operands, instruction.operand_count_visible, text, sizeof(text), ip, ZYAN_NULL)))
-                    result.entryPointInstructions.emplace_back(text);
-                else
-                    result.entryPointInstructions.emplace_back(ZydisMnemonicGetString(instruction.mnemonic));
+                result.entryPointInstructions.emplace_back(ZydisMnemonicGetString(instruction.mnemonic));
                 cursor += instruction.length;
             }
         }
