@@ -246,6 +246,7 @@ Result<UnwindInfo> parsePEUnwindInfo(
 
     std::size_t slot = 0;
     int previousCodeOffset = 256;
+    bool seenFirstEpilog = false;
 
     while (slot < out.codeSlots) {
         const std::uint16_t raw = slotValue(slot);
@@ -448,27 +449,26 @@ Result<UnwindInfo> parsePEUnwindInfo(
         case 6:
             if (out.version == 2) {
                 item.name = "UWOP_EPILOG";
-
-                if (oi == 0) {
-                    extra = 1;
-
-                    if (!need(slot, 2)) {
+                // In v2 every epilog descriptor occupies exactly one slot.
+                // The first descriptor stores length + AtEnd in OpInfo bit 0;
+                // subsequent descriptors store a 12-bit epilog offset.
+                if (!seenFirstEpilog) {
+                    if ((oi & 0x0E) != 0) {
                         return Result<UnwindInfo>::failure(
-                            "truncated UWOP_EPILOG"
+                            "invalid first UWOP_EPILOG OpInfo"
                         );
                     }
-
-                    item.value = slotValue(slot + 1);
-                } else if (oi == 1) {
+                    seenFirstEpilog = true;
                     item.value = codeOff;
+                    item.detail = std::string("epilog length ") +
+                        std::to_string(codeOff) +
+                        ((oi & 1) ? ", at function end" : ", relative to function start");
                 } else {
-                    return Result<UnwindInfo>::failure(
-                        "invalid UWOP_EPILOG OpInfo"
-                    );
+                    item.value = (std::uint32_t(oi) << 8) | codeOff;
+                    item.detail = item.value == 0
+                        ? "epilog padding marker"
+                        : "epilog offset " + std::to_string(item.value);
                 }
-
-                item.detail = "epilog metadata, offset " +
-                    std::to_string(item.value);
             } else {
                 return Result<UnwindInfo>::failure(
                     "reserved opcode 6 in UNWIND_INFO version 1"
@@ -480,6 +480,12 @@ Result<UnwindInfo> parsePEUnwindInfo(
             if (out.version == 2) {
                 item.name = "UWOP_SPARE_CODE";
                 item.detail = "version 2 spare opcode";
+                extra = 2;
+                if (!need(slot, 3)) {
+                    return Result<UnwindInfo>::failure(
+                        "truncated UWOP_SPARE_CODE"
+                    );
+                }
             } else {
                 return Result<UnwindInfo>::failure(
                     "reserved opcode 7 in UNWIND_INFO version 1"
