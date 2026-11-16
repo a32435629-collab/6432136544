@@ -209,6 +209,10 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
                 "); function boundaries retained: "+af.unwindError);
         } else {
             af.unwind=std::move(unwind.value());
+            for (const auto& warning : af.unwind.warnings) {
+                result.warnings.push_back("UNWIND_INFO at " +
+                    hex32(fn.unwindInfoRva) + ": " + warning);
+            }
 
             // A damaged chained record invalidates only chain metadata, not the
             // primary RUNTIME_FUNCTION range or the function's instruction scan.
@@ -226,6 +230,10 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
                     af.chainValid=false;
                     af.chainError="chained UNWIND_INFO is invalid: "+nested.error();
                     break;
+                }
+                for (const auto& warning : nested.value().warnings) {
+                    result.warnings.push_back("chained UNWIND_INFO at " +
+                        hex32(next.unwindInfoRva) + ": " + warning);
                 }
                 af.chainedRecords.push_back(next);
                 chain=std::move(nested.value());
