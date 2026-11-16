@@ -80,6 +80,30 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
         }
         break;
     }
+    if (!result.entryPointBytes.empty()) {
+        ZydisDecoder epDecoder;
+        ZydisFormatter epFormatter;
+        if (ZYAN_SUCCESS(ZydisDecoderInit(&epDecoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64)) &&
+            ZYAN_SUCCESS(ZydisFormatterInit(&epFormatter, ZYDIS_FORMATTER_STYLE_INTEL))) {
+            std::size_t cursor = 0;
+            while (cursor < result.entryPointBytes.size() && result.entryPointInstructions.size() < 8) {
+                ZydisDecodedInstruction instruction{};
+                ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT]{};
+                const auto status = ZydisDecoderDecodeFull(&epDecoder,
+                    result.entryPointBytes.data() + cursor,
+                    result.entryPointBytes.size() - cursor, &instruction, operands);
+                if (!ZYAN_SUCCESS(status) || instruction.length == 0) break;
+                char text[128]{};
+                const ZyanU64 ip = pe.imageBase + pe.entryPoint + cursor;
+                if (ZYAN_SUCCESS(ZydisFormatterFormatInstruction(&epFormatter, &instruction,
+                    operands, instruction.operand_count_visible, text, sizeof(text), ip, ZYAN_NULL)))
+                    result.entryPointInstructions.emplace_back(text);
+                else
+                    result.entryPointInstructions.emplace_back(ZydisMnemonicGetString(instruction.mnemonic));
+                cursor += instruction.length;
+            }
+        }
+    }
 
     auto runtime=parsePEExceptionDirectory(bytes,pe);
     if(!runtime) {
@@ -273,7 +297,9 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
 std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
     std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \""<<(pe.exceptionDirectoryRva && pe.exceptionDirectorySize ? "PE exception directory (.pdata)" : "heuristic candidates only; no confirmed boundaries")<<"\",\n  \"entry_point\": {\"rva\": \""<<hex32(pe.entryPoint)<<"\", \"section\": \""<<escapeJson(a.entryPointSection)<<"\", \"bytes\": \"";
     for (auto byte : a.entryPointBytes) { static const char* digits="0123456789ABCDEF"; o<<digits[byte>>4]<<digits[byte&15]; }
-    o<<"\"},\n  \"heuristic_function_candidates\": [";
+    o<<"\", \"instructions\": [";
+    for (std::size_t i=0;i<a.entryPointInstructions.size();++i) { if(i)o<<", "; o<<"\""<<escapeJson(a.entryPointInstructions[i])<<"\""; }
+    o<<"]},\n  \"heuristic_function_candidates\": [";
     for (std::size_t i=0;i<a.heuristicCandidates.size();++i) { if(i)o<<", "; o<<"{\"begin_rva\": \""<<hex32(a.heuristicCandidates[i].beginRva)<<"\", \"reason\": \""<<escapeJson(a.heuristicCandidates[i].reason)<<"\"}"; }
     o<<"],\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect memory targets may remain unresolved.\", \"RIP-relative indirect calls are resolved only when their slot matches parsed ordinary or delay-import IAT metadata.\", \"Heuristic function candidates are not confirmed function boundaries.\"],\n  \"analysis_warnings\": [";
     for(std::size_t i=0;i<a.warnings.size();++i){if(i)o<<",";o<<"\n    \""<<escapeJson(a.warnings[i])<<"\"";}
