@@ -268,7 +268,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
 
     // Invalid nested unwind metadata must not discard the primary function.
     auto brokenChainPe=pe;
-    w32(0x40c,0x1210);
+    for (int n=0;n<4;++n) brokenChainPe[0x40c+n]=std::uint8_t(0x1210u>>(n*8));
     brokenChainPe[0x410]=0x01; brokenChainPe[0x411]=0;
     brokenChainPe[0x412]=0; brokenChainPe[0x413]=1; // volatile RAX frame register
     auto brokenChainInfo=lulz::parsePE(brokenChainPe);
