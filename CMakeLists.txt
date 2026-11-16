@@ -59,6 +59,7 @@ add_library(lulz_core
     src/ai/neural/NeuralNetwork.cpp
     src/ai/builder/Json.cpp
     src/ai/builder/BuilderAI.cpp
+    src/ai/builder/BuilderLearning.cpp
     src/ai/providers/OpenAIClient.cpp
     src/ai/providers/DeepSeekClient.cpp
 )
@@ -97,6 +98,9 @@ target_link_libraries(lulz_dataset PRIVATE lulz_core)
 add_executable(lulz_builder app/builder.cpp)
 target_link_libraries(lulz_builder PRIVATE lulz_core)
 
+add_executable(lulz_builder_trainer app/builder_trainer.cpp)
+target_link_libraries(lulz_builder_trainer PRIVATE lulz_core)
+
 if(DLL_LULZ_BUILD_TESTS)
     enable_testing()
     add_executable(lulz_tests tests/test_main.cpp)
@@ -107,6 +111,15 @@ if(DLL_LULZ_BUILD_TESTS)
         target_compile_options(lulz_tests PRIVATE -UNDEBUG)
     endif()
     add_test(NAME lulz_tests COMMAND lulz_tests)
+
+    add_executable(lulz_builder_learning_tests tests/builder_learning_test.cpp)
+    target_link_libraries(lulz_builder_learning_tests PRIVATE lulz_core)
+    if(MSVC)
+        target_compile_options(lulz_builder_learning_tests PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(lulz_builder_learning_tests PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME lulz_builder_learning_tests COMMAND lulz_builder_learning_tests)
 
     add_executable(lulz_builder_tests tests/builder_test.cpp)
     target_link_libraries(lulz_builder_tests PRIVATE lulz_core)
