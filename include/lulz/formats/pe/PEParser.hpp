@@ -49,6 +49,8 @@ struct PEInfo {
     std::uint32_t exceptionDirectorySize = 0;
 
     std::vector<PESection> sections;
+    // Non-fatal structural anomalies found while parsing the section table.
+    std::vector<std::string> warnings;
 };
 
 Result<PEInfo> parsePE(std::span<const std::uint8_t> bytes);
