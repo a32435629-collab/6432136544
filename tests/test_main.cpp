@@ -205,7 +205,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
 
     // The first non-final epilog uses a second slot for its offset. Use a
     // payload that resembles an invalid PUSH_NONVOL to prove it is skipped.
-    pe[0x402]=2;
+    pe[0x402]=3;
     pe[0x404]=0x04; pe[0x405]=0x06; // first EPILOG: size=4, offset follows
     pe[0x406]=0x23; pe[0x407]=0x10; // offset=0x123 (payload, not an opcode)
     auto longEpilog=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
