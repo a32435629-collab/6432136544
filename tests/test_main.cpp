@@ -67,7 +67,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
 
     // A second section holds a synthetic RVA-based delay import directory.
     auto delayPe = pe;
-    delayPe.resize(0x800, 0);
+    delayPe.resize(0x900, 0);
     auto dw16 = [&](std::size_t o, std::uint16_t v) {
         delayPe[o] = std::uint8_t(v);
         delayPe[o + 1] = std::uint8_t(v >> 8);
@@ -100,7 +100,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     dw32(overlapSection + 8, 0x100);
     dw32(overlapSection + 12, 0x2200);
     dw32(overlapSection + 16, 0x100);
-    dw32(overlapSection + 20, 0x700);
+    dw32(overlapSection + 20, 0x800);
     dw32(overlapSection + 36, 0x40000040);
     const std::size_t delayDirectoryEntry = 0x98 + 112 + 13 * 8;
     dw32(delayDirectoryEntry, 0x2000);
