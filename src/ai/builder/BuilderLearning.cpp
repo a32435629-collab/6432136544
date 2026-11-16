@@ -1,11 +1,14 @@
 #include "ai/builder/BuilderLearning.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <cstdint>
 #include <cmath>
 #include <fstream>
 #include <iterator>
 #include <limits>
 #include <utility>
+#include <string_view>
 
 namespace lulz::ai::builder {
 namespace {
@@ -24,6 +27,21 @@ std::size_t countArray(const JsonValue* value) {
 double number(const JsonValue* value, double fallback = 0.0) {
     if (!value) return fallback;
     if (const auto* n = std::get_if<double>(&value->value)) return *n;
+    // Analyzer reports serialize RVAs as hexadecimal strings (for example,
+    // "0x1010"). Accept both decimal and hexadecimal numeric strings.
+    if (const auto* s = value->string()) {
+        std::string_view text(*s);
+        int base = 10;
+        if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+            text.remove_prefix(2);
+            base = 16;
+        }
+        if (text.empty()) return fallback;
+        std::uint64_t parsed = 0;
+        const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed, base);
+        if (result.ec == std::errc{} && result.ptr == text.data() + text.size())
+            return static_cast<double>(parsed);
+    }
     return fallback;
 }
 
