@@ -76,6 +76,15 @@ Call graph не является полным CFG: косвенные перех
 - компилятор с поддержкой C++20 (Visual Studio 2022 / MSVC или совместимый GCC/Clang);
 - доступ к GitHub во время первой конфигурации CMake для получения Zydis v4.1.1 через FetchContent.
 
+### Windows Desktop GUI (Win32 API)
+
+The native desktop interface is built as a separate `lulz_gui` target. It uses the existing `lulz_core` analysis engine; the CLI and test targets remain available.
+
+    cmake -S . -B build-msvc -A x64
+    cmake --build build-msvc --config Release --target lulz_gui
+
+Launch `build-msvc\\Release\\lulz_gui.exe`. Choose **Открыть файл** to inspect an EXE or DLL. The first GUI iteration includes an overview, PE section table, imports, discovered functions and diagnostic messages. It performs static parsing only and does not execute the selected file.
+
 ### Windows (Visual Studio 2022)
 
     cmake -S . -B build
