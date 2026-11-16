@@ -271,11 +271,11 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
 }
 
 std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
-    std::ostringstream o; o<<"{\\n  \"format\": \"PE32+ x64\",\\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\\n  \"function_count\": "<<a.functions.size()<<",\\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\\n  \"function_boundary_source\": \""<<(pe.exceptionDirectoryRva && pe.exceptionDirectorySize ? "PE exception directory (.pdata)" : "heuristic candidates only; no confirmed boundaries")<<"\",\\n  \"entry_point\": {\"rva\": \""<<hex32(pe.entryPoint)<<"\", \"section\": \""<<escapeJson(a.entryPointSection)<<"\", \"bytes\": \"";
+    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \""<<(pe.exceptionDirectoryRva && pe.exceptionDirectorySize ? "PE exception directory (.pdata)" : "heuristic candidates only; no confirmed boundaries")<<"\",\n  \"entry_point\": {\"rva\": \""<<hex32(pe.entryPoint)<<"\", \"section\": \""<<escapeJson(a.entryPointSection)<<"\", \"bytes\": \"";
     for (auto byte : a.entryPointBytes) { static const char* digits="0123456789ABCDEF"; o<<digits[byte>>4]<<digits[byte&15]; }
-    o<<"\"},\\n  \"heuristic_function_candidates\": [";
+    o<<"\"},\n  \"heuristic_function_candidates\": [";
     for (std::size_t i=0;i<a.heuristicCandidates.size();++i) { if(i)o<<", "; o<<"{\"begin_rva\": \""<<hex32(a.heuristicCandidates[i].beginRva)<<"\", \"reason\": \""<<escapeJson(a.heuristicCandidates[i].reason)<<"\"}"; }
-    o<<"],\\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect memory targets may remain unresolved.\", \"RIP-relative indirect calls are resolved only when their slot matches parsed ordinary or delay-import IAT metadata.\", \"Heuristic function candidates are not confirmed function boundaries.\"],\\n  \"analysis_warnings\": [";
+    o<<"],\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect memory targets may remain unresolved.\", \"RIP-relative indirect calls are resolved only when their slot matches parsed ordinary or delay-import IAT metadata.\", \"Heuristic function candidates are not confirmed function boundaries.\"],\n  \"analysis_warnings\": [";
     for(std::size_t i=0;i<a.warnings.size();++i){if(i)o<<",";o<<"\n    \""<<escapeJson(a.warnings[i])<<"\"";}
     if(!a.warnings.empty()) o<<"\n  ";
     o<<"],\n  \"pe_metadata\": {\"size_of_image\": "<<a.peMetadata.sizeOfImage
