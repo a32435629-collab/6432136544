@@ -233,3 +233,57 @@ The new `pe-deep` command reports all available data-directory entries and parse
     .\build\Release\dll_lulz.exe pe-deep .\sample.exe
 
 The parser is best-effort: malformed or unsupported substructures are reported as warnings where possible. Resource trees, delay-import decoding, load-config internals and certificate-table contents are not yet fully decoded. Static parsing is not a malware verdict.
+
+
+## Builder supervised learning
+
+Builder has a separate supervised training pipeline for two labels:
+- `assembly_valid`: 1 when the supplied Analyzer report is suitable for the expected Builder assembly workflow, otherwise 0.
+- `repair_needed`: 1 when the report contains issues that should be reviewed/repaired, otherwise 0.
+
+Create a UTF-8 dataset with at least two labeled examples:
+
+```json
+{
+  "examples": [
+    {
+      "analysis": {
+        "format": "PE32+ x64",
+        "functions": [
+          { "begin_rva": 4096, "end_rva": 4128, "calls": [] }
+        ],
+        "imports": [
+          { "module": "KERNEL32.dll", "name": "ExitProcess" }
+        ],
+        "analysis_warnings": [],
+        "decoded_instructions": 12
+      },
+      "targets": {
+        "assembly_valid": 1,
+        "repair_needed": 0
+      }
+    },
+    {
+      "analysis": {
+        "format": "PE32",
+        "functions": [],
+        "imports": [],
+        "analysis_warnings": ["Example warning"]
+      },
+      "targets": {
+        "assembly_valid": 0,
+        "repair_needed": 1
+      }
+    }
+  ]
+}
+```
+
+Train both Builder models:
+
+```powershell
+cmake --build build-msvc --config Release --target lulz_builder_trainer
+.\\build-msvc\\Release\\lulz_builder_trainer.exe .\\builder-training.json .\\models\\builder --epochs 500
+```
+
+This creates `builder_assembly.lzb` and `builder_repair.lzb`. The model files contain binary neural-network weights and a task identifier. The current feature schema is versioned by its fixed 17-input contract in code. Training reports the in-sample loss; it is not a held-out accuracy score. Predictions are advisory scores, not automatic binary modifications or proof that a generated project is correct. Use diverse, accurately labeled examples and keep separate unseen examples for independent evaluation.
