@@ -77,6 +77,21 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     auto decodedAgain=lulz::analyzePEFunctions(pe,parsed.value());
     assert(decodedAgain && decodedAgain.value().functions[0].calls.size()==1);
     assert(fa.value().functions[0].calls[0].resolved);
+
+    // A RIP-relative indirect call to an ordinary section slot is not automatically an IAT call.
+    // RVA 0x12f0 is inside the section but is absent from the import directory.
+    pe[0x300]=0xff; pe[0x301]=0x15;
+    pe[0x302]=0xea; pe[0x303]=0x01; pe[0x304]=0; pe[0x305]=0; // call [rip + 0x1ea] -> RVA 0x12f0
+    auto indirect=lulz::analyzePEFunctions(pe,parsed.value());
+    assert(indirect && indirect.value().functions.size()==1);
+    assert(indirect.value().functions[0].calls.size()==1);
+    const auto& indirectCall=indirect.value().functions[0].calls[0];
+    assert(indirectCall.kind=="call_indirect_rip");
+    assert(indirectCall.targetRva==0x12f0);
+    assert(!indirectCall.resolved);
+    assert(indirectCall.target.find("indirect memory slot")!=std::string::npos);
+    assert(indirectCall.target.find("IAT[")==std::string::npos);
+
     const auto json=lulz::functionAnalysisToJson(fa.value(),parsed.value());
     assert(json.find("call_graph")!=std::string::npos);
     assert(json.find("pe_metadata")!=std::string::npos);
