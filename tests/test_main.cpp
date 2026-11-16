@@ -335,27 +335,36 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(heuristicJson.find("heuristic_function_candidates") != std::string::npos);
     assert(heuristicJson.find("entry_point") != std::string::npos);
 
-    // PE structure diagnostics flag a writable+executable section and an
-    // entry point that is mapped to a section without execute permission.
+    // PE structure diagnostics flag W+X permissions and entry points in
+    // sections that are not marked executable.
     auto suspiciousLayout = withoutPdata;
-    auto write32Suspicious = [&](std::size_t offset, std::uint32_t value) {
+    auto write32Suspicious = [&](std::vector<std::uint8_t>& target,
+                                 std::size_t offset, std::uint32_t value) {
         for (int n = 0; n < 4; ++n)
-            suspiciousLayout[offset + n] = std::uint8_t(value >> (n * 8));
+            target[offset + n] = std::uint8_t(value >> (n * 8));
     };
-    write32Suspicious(0x98 + 16, 0x1000); // AddressOfEntryPoint
-    write32Suspicious(sh + 36, 0xA0000000u); // READ | WRITE, not EXECUTE
+    write32Suspicious(suspiciousLayout, 0x98 + 16, 0x1000);
+    write32Suspicious(suspiciousLayout, sh + 36, 0xE0000000u); // READ | WRITE | EXECUTE
     auto suspiciousInfo = lulz::parsePE(suspiciousLayout);
     assert(suspiciousInfo);
     auto suspiciousAnalysis = lulz::analyzePEFunctions(suspiciousLayout, suspiciousInfo.value());
     assert(suspiciousAnalysis);
     bool sawWx = false;
-    bool sawNonExecutableEntry = false;
-    for (const auto& warning : suspiciousAnalysis.value().warnings) {
+    for (const auto& warning : suspiciousAnalysis.value().warnings)
         sawWx = sawWx || warning.find("writable and executable") != std::string::npos;
+    assert(sawWx);
+
+    auto nonExecutableEntry = withoutPdata;
+    write32Suspicious(nonExecutableEntry, 0x98 + 16, 0x1000);
+    write32Suspicious(nonExecutableEntry, sh + 36, 0x40000000u); // READ only
+    auto nonExecutableInfo = lulz::parsePE(nonExecutableEntry);
+    assert(nonExecutableInfo);
+    auto nonExecutableAnalysis = lulz::analyzePEFunctions(nonExecutableEntry, nonExecutableInfo.value());
+    assert(nonExecutableAnalysis);
+    bool sawNonExecutableEntry = false;
+    for (const auto& warning : nonExecutableAnalysis.value().warnings)
         sawNonExecutableEntry = sawNonExecutableEntry ||
             warning.find("entry point is located") != std::string::npos;
-    }
-    assert(sawWx);
     assert(sawNonExecutableEntry);
 
     std::cout<<"All foundation tests passed\n";
