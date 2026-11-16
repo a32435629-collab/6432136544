@@ -79,6 +79,15 @@ endif()
 add_executable(dll_lulz app/main.cpp)
 target_link_libraries(dll_lulz PRIVATE lulz_core)
 
+if(WIN32)
+    add_executable(lulz_gui WIN32 app/gui_main.cpp)
+    target_link_libraries(lulz_gui PRIVATE lulz_core comctl32 comdlg32 user32 gdi32)
+    target_compile_definitions(lulz_gui PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
+    if(MSVC)
+        target_compile_options(lulz_gui PRIVATE /W4 /permissive- /EHsc /utf-8)
+    endif()
+endif()
+
 add_executable(lulz_trainer app/trainer.cpp)
 target_link_libraries(lulz_trainer PRIVATE lulz_core)
 
