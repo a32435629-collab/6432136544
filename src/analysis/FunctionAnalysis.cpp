@@ -61,9 +61,79 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
     else result.warnings.push_back("imports could not be parsed: "+imports.error());
 
     // A missing or damaged .pdata directory should not discard valid PE metadata.
+    // Record the section containing AddressOfEntryPoint and a small byte window
+    // for inspection. These bytes are never executed.
+    for (const auto& section : pe.sections) {
+        const std::uint64_t span = std::max(section.virtualSize, section.rawSize);
+        if (pe.entryPoint < section.virtualAddress ||
+            std::uint64_t(pe.entryPoint) - section.virtualAddress >= span) continue;
+        result.entryPointSection = section.name.empty() ? "<unnamed>" : section.name;
+        const std::uint64_t delta = std::uint64_t(pe.entryPoint) - section.virtualAddress;
+        if (delta < section.rawSize) {
+            const std::uint64_t fileOffset = std::uint64_t(section.rawOffset) + delta;
+            if (fileOffset < bytes.size()) {
+                const std::size_t count = std::min<std::size_t>(
+                    32, std::min<std::uint64_t>(section.rawSize - delta, bytes.size() - fileOffset));
+                result.entryPointBytes.assign(bytes.begin() + static_cast<std::size_t>(fileOffset),
+                    bytes.begin() + static_cast<std::size_t>(fileOffset) + count);
+            }
+        }
+        break;
+    }
+
     auto runtime=parsePEExceptionDirectory(bytes,pe);
     if(!runtime) {
         result.warnings.push_back("function boundaries unavailable: "+runtime.error());
+
+        // Without .pdata, do not fabricate confirmed function ranges. Scan only
+        // executable sections for common x64 prologue byte patterns and expose
+        // them as heuristic candidates. Limits keep hostile/huge files bounded.
+        constexpr std::size_t kMaxScanBytes = 128u * 1024u * 1024u;
+        constexpr std::size_t kMaxCandidates = 50000;
+        std::size_t scanned = 0;
+        for (const auto& section : pe.sections) {
+            if ((section.characteristics & 0x20000000u) == 0 || section.rawSize < 4)
+                continue;
+            const std::uint64_t fileOffset = section.rawOffset;
+            if (fileOffset >= bytes.size()) continue;
+            const std::size_t available = std::min<std::uint64_t>(
+                section.rawSize, bytes.size() - fileOffset);
+            const std::size_t count = std::min(available, kMaxScanBytes - scanned);
+            if (count < 4) continue;
+            const auto* data = bytes.data() + static_cast<std::size_t>(fileOffset);
+            for (std::size_t i = 0; i + 4 <= count &&
+                 result.heuristicCandidates.size() < kMaxCandidates; ++i) {
+                const auto b0=data[i], b1=data[i+1], b2=data[i+2], b3=data[i+3];
+                const char* reason = nullptr;
+                if (b0==0x55 && b1==0x48 && b2==0x89 && b3==0xe5)
+                    reason = "push rbp; mov rbp, rsp";
+                else if (b0==0x48 && b1==0x83 && b2==0xec)
+                    reason = "sub rsp, imm8";
+                else if (b0==0x48 && b1==0x81 && b2==0xec)
+                    reason = "sub rsp, imm32";
+                else if (b0==0x40 && b1==0x55)
+                    reason = "REX push rbp";
+                else if (b0==0x48 && b1==0x89 && b2==0x5c && b3==0x24)
+                    reason = "save nonvolatile register";
+                if (reason) {
+                    const std::uint64_t rva = std::uint64_t(section.virtualAddress) + i;
+                    if (rva <= 0xffffffffull)
+                        result.heuristicCandidates.push_back({
+                            static_cast<std::uint32_t>(rva), reason});
+                }
+            }
+            scanned += count;
+            if (scanned >= kMaxScanBytes ||
+                result.heuristicCandidates.size() >= kMaxCandidates) break;
+        }
+        if (!result.heuristicCandidates.empty())
+            result.warnings.push_back("heuristic function candidates found: " +
+                std::to_string(result.heuristicCandidates.size()) +
+                " (not confirmed; no function boundaries were inferred)");
+        if (scanned >= kMaxScanBytes)
+            result.warnings.push_back("heuristic scan stopped at the 128 MiB safety limit");
+        if (result.heuristicCandidates.size() >= kMaxCandidates)
+            result.warnings.push_back("heuristic scan stopped at the 50000-candidate safety limit");
         return Result<FunctionAnalysis>::success(std::move(result));
     }
 
@@ -201,7 +271,11 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
 }
 
 std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
-    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect memory targets may remain unresolved.\", \"RIP-relative indirect calls are resolved only when their slot matches parsed ordinary or delay-import IAT metadata.\"],\n  \"analysis_warnings\": [";
+    std::ostringstream o; o<<"{\\n  \"format\": \"PE32+ x64\",\\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\\n  \"function_count\": "<<a.functions.size()<<",\\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\\n  \"function_boundary_source\": \""<<(pe.exceptionDirectoryRva && pe.exceptionDirectorySize ? "PE exception directory (.pdata)" : "heuristic candidates only; no confirmed boundaries")<<"\",\\n  \"entry_point\": {\"rva\": \""<<hex32(pe.entryPoint)<<"\", \"section\": \""<<escapeJson(a.entryPointSection)<<"\", \"bytes\": \"";
+    for (auto byte : a.entryPointBytes) { static const char* digits="0123456789ABCDEF"; o<<digits[byte>>4]<<digits[byte&15]; }
+    o<<"\"},\\n  \"heuristic_function_candidates\": [";
+    for (std::size_t i=0;i<a.heuristicCandidates.size();++i) { if(i)o<<", "; o<<"{\"begin_rva\": \""<<hex32(a.heuristicCandidates[i].beginRva)<<"\", \"reason\": \""<<escapeJson(a.heuristicCandidates[i].reason)<<"\"}"; }
+    o<<"],\\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect memory targets may remain unresolved.\", \"RIP-relative indirect calls are resolved only when their slot matches parsed ordinary or delay-import IAT metadata.\", \"Heuristic function candidates are not confirmed function boundaries.\"],\\n  \"analysis_warnings\": [";
     for(std::size_t i=0;i<a.warnings.size();++i){if(i)o<<",";o<<"\n    \""<<escapeJson(a.warnings[i])<<"\"";}
     if(!a.warnings.empty()) o<<"\n  ";
     o<<"],\n  \"pe_metadata\": {\"size_of_image\": "<<a.peMetadata.sizeOfImage
