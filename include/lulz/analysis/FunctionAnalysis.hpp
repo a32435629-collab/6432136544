@@ -24,6 +24,10 @@ struct FunctionCall {
 struct AnalyzedFunction {
     RuntimeFunctionEntry range;
     UnwindInfo unwind;
+    bool unwindValid{true};
+    std::string unwindError;
+    bool chainValid{true};
+    std::string chainError;
     std::vector<RuntimeFunctionEntry> chainedRecords;
     std::vector<DecodedInstruction> instructions;
     std::vector<FunctionCall> calls;
