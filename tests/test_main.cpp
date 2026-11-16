@@ -186,21 +186,30 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(runtime.value()[0].endRva==0x1150);
     assert(runtime.value()[0].unwindInfoRva==0x1200);
 
-    // Version 2 epilog descriptors are one slot each; the first stores
-    // length/AtEnd, later descriptors store a 12-bit offset.
-    pe[0x400]=0x02; pe[0x401]=4; pe[0x402]=3; pe[0x403]=0;
+    // Version 2 epilog descriptors: AtEnd uses one slot; a non-final
+    // epilog uses a second slot for its offset. Payload must not be decoded
+    // as an independent operation (0x0008 would be invalid PUSH_NONVOL RAX).
+    pe[0x400]=0x02; pe[0x401]=4; pe[0x402]=4; pe[0x403]=0;
     pe[0x404]=0x01; pe[0x405]=0x16; // EPILOG: length=1, AtEnd=yes
-    pe[0x406]=0x0b; pe[0x407]=0x06; // EPILOG: offset=0x0b
-    pe[0x408]=0x04; pe[0x409]=0x82; // ALLOC_SMALL: 72 bytes
+    pe[0x406]=0x06; pe[0x407]=0x06; // EPILOG: length=6, offset follows
+    pe[0x408]=0x08; pe[0x409]=0x00; // payload offset=8 (not an opcode)
+    pe[0x40a]=0x04; pe[0x40b]=0x82; // ALLOC_SMALL: 72 bytes
     auto unwindV2=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
     assert(unwindV2 && unwindV2.value().version==2);
     assert(unwindV2.value().operations.size()==3);
     assert(unwindV2.value().operations[0].name=="UWOP_EPILOG");
     assert(unwindV2.value().operations[0].value==1);
     assert(unwindV2.value().operations[1].name=="UWOP_EPILOG");
-    assert(unwindV2.value().operations[1].value==0x0b);
+    assert(unwindV2.value().operations[1].value==8);
+    assert(unwindV2.value().operations[1].detail.find("length 6")!=std::string::npos);
     assert(unwindV2.value().operations[2].name=="UWOP_ALLOC_SMALL");
     assert(unwindV2.value().stackAllocation==72);
+
+    // A truncated two-slot epilog descriptor is rejected safely.
+    pe[0x402]=1;
+    pe[0x406]=0x06; pe[0x407]=0x06;
+    auto truncatedEpilog=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
+    assert(!truncatedEpilog);
 
     // Version 2 spare opcode occupies three slots; its payload must not be
     // decoded as independent unwind operations.
