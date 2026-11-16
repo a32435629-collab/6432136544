@@ -144,6 +144,9 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(runtime.value()[0].beginRva==0x1100);
     assert(runtime.value()[0].endRva==0x1150);
     assert(runtime.value()[0].unwindInfoRva==0x1200);
+    auto runtime=lulz::parsePEExceptionDirectory(pe, parsed.value());
+    assert(runtime && runtime.value().size()==1);
+
     // Version 2 epilog descriptors are one slot each; the first stores
     // length/AtEnd, later descriptors store a 12-bit offset.
     pe[0x400]=0x02; pe[0x401]=4; pe[0x402]=3; pe[0x403]=0;
