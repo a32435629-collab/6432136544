@@ -106,6 +106,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
     std::sort(result.functions.begin(),result.functions.end(),[](const auto& a,const auto& b){return a.range.beginRva<b.range.beginRva;});
     std::map<std::uint32_t,std::string> iat;
     for(const auto& im:result.imports) iat[im.iatRva]=im.module+"!"+im.name;
+    for(const auto& im:result.peMetadata.delayImports) iat[im.iatRva]=im.module+"!"+im.name;
 
     // Decode complete x64 instructions. This prevents opcode-like bytes inside
     // immediates/displacements from being mistaken for CALL/JMP instructions.
@@ -197,7 +198,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
 }
 
 std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
-    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect memory targets may remain unresolved.\", \"RIP-relative indirect calls are resolved only when their slot matches a parsed ordinary import IAT entry.\"],\n  \"analysis_warnings\": [";
+    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect memory targets may remain unresolved.\", \"RIP-relative indirect calls are resolved only when their slot matches parsed ordinary or delay-import IAT metadata.\"],\n  \"analysis_warnings\": [";
     for(std::size_t i=0;i<a.warnings.size();++i){if(i)o<<",";o<<"\n    \""<<escapeJson(a.warnings[i])<<"\"";}
     if(!a.warnings.empty()) o<<"\n  ";
     o<<"],\n  \"pe_metadata\": {\"size_of_image\": "<<a.peMetadata.sizeOfImage
@@ -250,6 +251,14 @@ std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
     o<<"]}},\n  \"imports\": [";
     for(std::size_t i=0;i<a.imports.size();++i){const auto& im=a.imports[i];if(i)o<<",";o<<"\n    {\"module\": \""<<escapeJson(im.module)<<"\", \"name\": \""<<escapeJson(im.name)<<"\", \"iat_rva\": \""<<hex32(im.iatRva)<<"\"}";}
     if(!a.imports.empty()) o<<"\n  ";
+    o<<"],\n  \"delay_imports\": [";
+    for(std::size_t i=0;i<a.peMetadata.delayImports.size();++i) {
+        const auto& im=a.peMetadata.delayImports[i]; if(i)o<<",";
+        o<<"\n    {\"module\": \""<<escapeJson(im.module)<<"\", \"name\": \""<<escapeJson(im.name)
+         <<"\", \"iat_rva\": \""<<hex32(im.iatRva)<<"\", \"by_ordinal\": "<<(im.byOrdinal?"true":"false")
+         <<", \"ordinal\": "<<im.ordinal<<"}";
+    }
+    if(!a.peMetadata.delayImports.empty()) o<<"\n  ";
     o<<"],\n  \"functions\": [";
     for(std::size_t i=0;i<a.functions.size();++i){const auto& f=a.functions[i];if(i)o<<",";o<<"\n    {\"begin_rva\": \""<<hex32(f.range.beginRva)<<"\", \"end_rva\": \""<<hex32(f.range.endRva)<<"\", \"size\": "<<(f.range.endRva-f.range.beginRva)<<", \"unwind_rva\": \""<<hex32(f.range.unwindInfoRva)<<"\", \"stack_consumed\": "<<f.unwind.stackAllocation<<", \"explicit_stack_allocation\": "<<f.unwind.explicitAllocation<<", \"frame_register\": \""<<frameRegName(f.unwind.frameRegister)<<"\", \"frame_offset_bytes\": "<<unsigned(f.unwind.frameOffset)*16<<", \"saved_registers\": [";
         for(std::size_t j=0;j<f.unwind.savedRegisters.size();++j){if(j)o<<", ";o<<"\""<<f.unwind.savedRegisters[j]<<"\"";}
