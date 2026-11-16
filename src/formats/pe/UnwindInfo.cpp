@@ -246,7 +246,6 @@ Result<UnwindInfo> parsePEUnwindInfo(
 
     std::size_t slot = 0;
     int previousCodeOffset = 256;
-    bool seenFirstEpilog = false;
 
     while (slot < out.codeSlots) {
         const std::uint16_t raw = slotValue(slot);
@@ -454,25 +453,30 @@ Result<UnwindInfo> parsePEUnwindInfo(
         case 6:
             if (out.version == 2) {
                 item.name = "UWOP_EPILOG";
-                // In v2 every epilog descriptor occupies exactly one slot.
-                // The first descriptor stores length + AtEnd in OpInfo bit 0;
-                // subsequent descriptors store a 12-bit epilog offset.
-                if (!seenFirstEpilog) {
-                    if ((oi & 0x0E) != 0) {
+                // OpInfo bit 0 marks an epilog at the end of the function.
+                // Otherwise CodeOffset is the epilog size and the next slot
+                // contains its offset. That payload slot is not an operation.
+                if ((oi & 0x0E) != 0) {
+                    return Result<UnwindInfo>::failure(
+                        "invalid UWOP_EPILOG OpInfo"
+                    );
+                }
+
+                if ((oi & 1) != 0) {
+                    item.value = codeOff;
+                    item.detail = "epilog length " +
+                        std::to_string(codeOff) + ", at function end";
+                } else {
+                    extra = 1;
+                    if (!need(slot, 2)) {
                         return Result<UnwindInfo>::failure(
-                            "invalid first UWOP_EPILOG OpInfo"
+                            "truncated UWOP_EPILOG offset"
                         );
                     }
-                    seenFirstEpilog = true;
-                    item.value = codeOff;
-                    item.detail = std::string("epilog length ") +
-                        std::to_string(codeOff) +
-                        ((oi & 1) ? ", at function end" : ", relative to function start");
-                } else {
-                    item.value = (std::uint32_t(oi) << 8) | codeOff;
-                    item.detail = item.value == 0
-                        ? "epilog padding marker"
-                        : "epilog offset " + std::to_string(item.value);
+                    item.value = slotValue(slot + 1);
+                    item.detail = "epilog length " +
+                        std::to_string(codeOff) + ", offset " +
+                        std::to_string(item.value);
                 }
             } else {
                 return Result<UnwindInfo>::failure(
