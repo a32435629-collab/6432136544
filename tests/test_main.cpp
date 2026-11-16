@@ -82,7 +82,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     // ImgDelayDescr: grAttrs=RVA, name=0x2040, IAT=0x2070, INT=0x2060.
     dw32(0x600, 1);
     dw32(0x604, 0x2040);
-    dw32(0x60c, 0x2070);
+    dw32(0x60c, 0x2088);
     dw32(0x610, 0x2060);
     // The second 32-byte descriptor is the required null terminator.
     const char delayModule[] = "delaytest.dll";
@@ -92,13 +92,13 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     auto dw64 = [&](std::size_t o, std::uint64_t v) {
         for (int n = 0; n < 8; ++n) delayPe[o + n] = std::uint8_t(v >> (n * 8));
     };
-    dw64(0x660, 0x2080);
+    dw64(0x660, 0x20a0);
     dw64(0x668, 0x800000000000002aull);
     dw64(0x670, 0);
-    dw16(0x680, 7); // hint
+    dw16(0x6a0, 7); // hint
     const char delayName[] = "DelayFunc";
     for (std::size_t i = 0; i < sizeof(delayName); ++i)
-        delayPe[0x682 + i] = static_cast<std::uint8_t>(delayName[i]);
+        delayPe[0x6a2 + i] = static_cast<std::uint8_t>(delayName[i]);
 
     auto delayParsed = lulz::parsePE(delayPe);
     assert(delayParsed && delayParsed.value().sectionCount == 2);
@@ -108,7 +108,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(delayExtended.value().delayImports.size() == 2);
     assert(delayExtended.value().delayImports[0].module == "delaytest.dll");
     assert(delayExtended.value().delayImports[0].name == "DelayFunc");
-    assert(delayExtended.value().delayImports[0].iatRva == 0x2070);
+    assert(delayExtended.value().delayImports[0].iatRva == 0x2088);
     assert(!delayExtended.value().delayImports[0].byOrdinal);
     assert(delayExtended.value().delayImports[1].byOrdinal);
     assert(delayExtended.value().delayImports[1].ordinal == 42);
@@ -117,7 +117,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     // A call through the delay-IAT slot must resolve to the delay import metadata.
     delayPe[0x300] = 0xff;
     delayPe[0x301] = 0x15;
-    delayPe[0x302] = 0x6a; // 0x2070 - (0x1100 + 6) = 0x0f6a
+    delayPe[0x302] = 0x82; // 0x2088 - (0x1100 + 6) = 0x0f82
     delayPe[0x303] = 0x0f;
     delayPe[0x304] = 0;
     delayPe[0x305] = 0;
@@ -127,7 +127,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(delayAnalysis.value().functions[0].calls[0].resolved);
     assert(delayAnalysis.value().functions[0].calls[0].target == "delaytest.dll!DelayFunc");
     const auto delayJson = lulz::functionAnalysisToJson(delayAnalysis.value(), delayParsed.value());
-    assert(delayJson.find("\\"delay_imports\\"") != std::string::npos);
+    assert(delayJson.find("\"delay_imports\"") != std::string::npos);
     assert(delayJson.find("DelayFunc") != std::string::npos);
 
     // Malformed delay descriptor addresses are reported without crashing.
