@@ -311,5 +311,28 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(noPdataAnalysis.value().functions.empty());
     assert(!noPdataAnalysis.value().warnings.empty());
 
+    // Missing .pdata: executable-section prologues are exposed only as
+    // heuristic candidates, never promoted to confirmed function records.
+    auto heuristicPe = withoutPdata;
+    auto put32 = [&](std::size_t offset, std::uint32_t value) {
+        for (int n = 0; n < 4; ++n)
+            heuristicPe[offset + n] = std::uint8_t(value >> (n * 8));
+    };
+    put32(sh + 36, 0x20000000u); // IMAGE_SCN_MEM_EXECUTE
+    put32(0x98 + 16, 0x1000);    // AddressOfEntryPoint
+    heuristicPe[0x200] = 0x55; heuristicPe[0x201] = 0x48;
+    heuristicPe[0x202] = 0x89; heuristicPe[0x203] = 0xe5;
+    auto heuristicInfo = lulz::parsePE(heuristicPe);
+    assert(heuristicInfo);
+    auto heuristic = lulz::analyzePEFunctions(heuristicPe, heuristicInfo.value());
+    assert(heuristic && heuristic.value().functions.empty());
+    assert(!heuristic.value().heuristicCandidates.empty());
+    assert(heuristic.value().heuristicCandidates[0].beginRva == 0x1000);
+    assert(heuristic.value().entryPointSection == ".pdata");
+    assert(heuristic.value().entryPointBytes.size() == 32);
+    const auto heuristicJson = lulz::functionAnalysisToJson(heuristic.value(), heuristicInfo.value());
+    assert(heuristicJson.find("heuristic_function_candidates") != std::string::npos);
+    assert(heuristicJson.find("entry_point") != std::string::npos);
+
     std::cout<<"All foundation tests passed\n";
 }
