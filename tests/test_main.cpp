@@ -266,6 +266,19 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(chain && chain.value().chained);
     assert(chain.value().chainedFunction.beginRva==0x1100);
 
+    // Invalid nested unwind metadata must not discard the primary function.
+    auto brokenChainPe=pe;
+    w32(0x40c,0x1210);
+    brokenChainPe[0x410]=0x01; brokenChainPe[0x411]=0;
+    brokenChainPe[0x412]=0; brokenChainPe[0x413]=1; // volatile RAX frame register
+    auto brokenChainInfo=lulz::parsePE(brokenChainPe);
+    assert(brokenChainInfo);
+    auto brokenChainAnalysis=lulz::analyzePEFunctions(brokenChainPe,brokenChainInfo.value());
+    assert(brokenChainAnalysis && brokenChainAnalysis.value().functions.size()==1);
+    assert(!brokenChainAnalysis.value().functions[0].chainValid);
+    assert(brokenChainAnalysis.value().functions[0].chainError.find("invalid")!=std::string::npos);
+    assert(brokenChainAnalysis.value().warnings.size()>=1);
+
     // EHANDLER tail stores a handler RVA.
     pe[0x400]=0x09; pe[0x401]=0; pe[0x402]=0; pe[0x403]=0;
     w32(0x404,0x1100);
@@ -294,8 +307,13 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     // A malformed individual unwind record must not abort the entire image analysis.
     auto bestEffort = lulz::analyzePEFunctions(pe, parsed.value());
     assert(bestEffort);
-    assert(bestEffort.value().functions.empty());
+    assert(bestEffort.value().functions.size()==1);
+    assert(!bestEffort.value().functions[0].unwindValid);
+    assert(bestEffort.value().functions[0].unwindError.find("frame register")!=std::string::npos);
+    assert(!bestEffort.value().functions[0].instructions.empty());
     assert(!bestEffort.value().warnings.empty());
+    const auto bestEffortJson=lulz::functionAnalysisToJson(bestEffort.value(),parsed.value());
+    assert(bestEffortJson.find("\"unwind_valid\": false")!=std::string::npos);
 
     // Images without .pdata still produce a successful partial analysis result.
     auto withoutPdata = pe;
