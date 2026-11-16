@@ -28,7 +28,14 @@ struct AnalyzedFunction {
     std::vector<DecodedInstruction> instructions;
     std::vector<FunctionCall> calls;
 };
+struct HeuristicFunctionCandidate {
+    std::uint32_t beginRva{};
+    std::string reason;
+};
 struct FunctionAnalysis {
+    std::string entryPointSection;
+    std::vector<std::uint8_t> entryPointBytes;
+    std::vector<HeuristicFunctionCandidate> heuristicCandidates;
     PEExtendedInfo peMetadata;
     std::vector<AnalyzedFunction> functions;
     std::vector<ImportSymbol> imports;
