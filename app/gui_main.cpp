@@ -110,7 +110,19 @@ void showPage(int page) {
     }
     SetWindowTextW(g_title, g_page.c_str());
     if (!g_pe) {
-        setContent(g_error.empty() ? L"Откройте EXE или DLL, чтобы начать анализ.\r\n\r\nLULZ-AI читает файл как данные и не запускает его." : g_error);
+        std::wostringstream out;
+        if (g_path.empty()) {
+            out << L"Откройте EXE или DLL, чтобы начать анализ.\\r\\n\\r\\n"
+                << L"LULZ-AI читает файл как данные и не запускает его.";
+        } else {
+            out << L"ВЫБРАННЫЙ ФАЙЛ\\r\\n\\r\\n"
+                << L"Файл: " << fileName() << L"\\r\\n"
+                << L"Путь: " << g_path << L"\\r\\n\\r\\n"
+                << L"Не удалось построить PE-отчёт.\\r\\n"
+                << (g_error.empty() ? L"Причина не указана." : g_error)
+                << L"\\r\\n\\r\\nПроверьте, что выбран корректный EXE/DLL, а файл не повреждён и доступен для чтения.";
+        }
+        setContent(out.str());
         return;
     }
     std::wostringstream out;
