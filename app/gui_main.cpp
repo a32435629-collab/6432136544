@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <initializer_list>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -57,9 +58,12 @@ std::wstring widen(const std::string& s) {
     return out;
 }
 std::wstring number(std::size_t n) {
-    std::wostringstream s; s.imbue(std::locale("")); s << n; return s.str();
+    std::wostringstream s; s << n; return s.str();
 }
 std::wstring hex32(std::uint32_t n) {
+    std::wostringstream s; s << L"0x" << std::uppercase << std::hex << n; return s.str();
+}
+std::wstring hex64(std::uint64_t n) {
     std::wostringstream s; s << L"0x" << std::uppercase << std::hex << n; return s.str();
 }
 void setContent(const std::wstring& value) {
@@ -75,13 +79,13 @@ void analyzeFile(const std::wstring& path) {
     std::ifstream in(std::filesystem::path(path), std::ios::binary);
     if (!in) { g_error = L"Не удалось открыть файл."; return; }
     in.seekg(0, std::ios::end);
-    const auto length = in.tellg();
+    const auto length = static_cast<std::streamoff>(in.tellg());
     if (length <= 0 || length > static_cast<std::streamoff>(512ull * 1024 * 1024)) {
         g_error = L"Файл пустой или превышает лимит GUI (512 МиБ)."; return;
     }
     in.seekg(0, std::ios::beg);
     g_bytes.resize(static_cast<std::size_t>(length));
-    if (!in.read(reinterpret_cast<char*>(g_bytes.data()), length)) {
+    if (!in.read(reinterpret_cast<char*>(g_bytes.data()), static_cast<std::streamsize>(length))) {
         clearAnalysis(); g_error = L"Ошибка чтения файла."; return;
     }
     auto pe = lulz::parsePE(g_bytes);
@@ -118,7 +122,7 @@ void showPage(int page) {
             << L"Архитектура: " << (g_pe->is64 ? L"x64" : L"x86") << L"\r\n"
             << L"Размер: " << number(g_bytes.size()) << L" байт\r\n"
             << L"Точка входа (RVA): " << hex32(g_pe->entryPoint) << L"\r\n"
-            << L"Image Base: " << hex32(static_cast<std::uint32_t>(g_pe->imageBase)) << L"\r\n"
+            << L"Image Base: " << hex64(g_pe->imageBase) << L"\r\n"
             << L"Секций: " << g_pe->sections.size() << L"\r\n"
             << L"Функций: " << (g_analysis ? number(g_analysis->functions.size()) : L"не определено") << L"\r\n"
             << L"Импортов: " << (g_analysis ? number(g_analysis->imports.size()) : L"не определено") << L"\r\n"
@@ -219,7 +223,7 @@ LRESULT CALLBACK wndProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         static HBRUSH brush=CreateSolidBrush(PANEL); return reinterpret_cast<LRESULT>(brush);
     }
     case WM_CTLCOLORSTATIC: {
-        HDC dc=reinterpret_cast<HDC>(wp); SetTextColor(dc,LOWORD(reinterpret_cast<UINT_PTR>(lp))==0?TEXT:MUTED); SetBkColor(dc,BG);
+        HDC dc=reinterpret_cast<HDC>(wp); SetTextColor(dc,GetDlgCtrlID(reinterpret_cast<HWND>(lp))==0?TEXT:MUTED); SetBkColor(dc,BG);
         static HBRUSH brush=CreateSolidBrush(BG); return reinterpret_cast<LRESULT>(brush);
     }
     case WM_DESTROY:
