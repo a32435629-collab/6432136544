@@ -186,28 +186,38 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(runtime.value()[0].endRva==0x1150);
     assert(runtime.value()[0].unwindInfoRva==0x1200);
 
-    // Version 2 epilog descriptors: AtEnd uses one slot; a non-final
-    // epilog uses a second slot for its offset. Payload must not be decoded
-    // as an independent operation (0x0008 would be invalid PUSH_NONVOL RAX).
-    pe[0x400]=0x02; pe[0x401]=4; pe[0x402]=4; pe[0x403]=0;
-    pe[0x404]=0x01; pe[0x405]=0x16; // EPILOG: length=1, AtEnd=yes
-    pe[0x406]=0x06; pe[0x407]=0x06; // EPILOG: length=6, offset follows
-    pe[0x408]=0x08; pe[0x409]=0x00; // payload offset=8 (not an opcode)
-    pe[0x40a]=0x04; pe[0x40b]=0x82; // ALLOC_SMALL: 72 bytes
+    // Version 2 epilog descriptors: the first descriptor stores the
+    // epilog size; OpInfo bit 0 selects an inline end marker or a second
+    // slot containing the 12-bit offset. Later descriptors use one slot.
+    pe[0x400]=0x02; pe[0x401]=4; pe[0x402]=3; pe[0x403]=0;
+    pe[0x404]=0x01; pe[0x405]=0x16; // first EPILOG: size=1, at function end
+    pe[0x406]=0x0b; pe[0x407]=0x06; // later EPILOG: offset=0x0b
+    pe[0x408]=0x04; pe[0x409]=0x82; // ALLOC_SMALL: 72 bytes
     auto unwindV2=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
     assert(unwindV2 && unwindV2.value().version==2);
     assert(unwindV2.value().operations.size()==3);
     assert(unwindV2.value().operations[0].name=="UWOP_EPILOG");
     assert(unwindV2.value().operations[0].value==1);
     assert(unwindV2.value().operations[1].name=="UWOP_EPILOG");
-    assert(unwindV2.value().operations[1].value==8);
-    assert(unwindV2.value().operations[1].detail.find("length 6")!=std::string::npos);
+    assert(unwindV2.value().operations[1].value==0x0b);
     assert(unwindV2.value().operations[2].name=="UWOP_ALLOC_SMALL");
     assert(unwindV2.value().stackAllocation==72);
 
-    // A truncated two-slot epilog descriptor is rejected safely.
+    // The first non-final epilog uses a second slot for its offset. Use a
+    // payload that resembles an invalid PUSH_NONVOL to prove it is skipped.
+    pe[0x402]=2;
+    pe[0x404]=0x04; pe[0x405]=0x06; // first EPILOG: size=4, offset follows
+    pe[0x406]=0x23; pe[0x407]=0x10; // offset=0x123 (payload, not an opcode)
+    auto longEpilog=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
+    assert(longEpilog && longEpilog.value().operations.size()==2);
+    assert(longEpilog.value().operations[0].name=="UWOP_EPILOG");
+    assert(longEpilog.value().operations[0].value==0x123);
+    assert(longEpilog.value().operations[0].detail.find("length 4")!=std::string::npos);
+    assert(longEpilog.value().operations[1].name=="UWOP_ALLOC_SMALL");
+
+    // A truncated two-slot first epilog descriptor is rejected safely.
     pe[0x402]=1;
-    pe[0x404]=0x06; pe[0x405]=0x06; // EPILOG with OpInfo bit 0 clear
+    pe[0x404]=0x04; pe[0x405]=0x06;
     auto truncatedEpilog=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
     assert(!truncatedEpilog);
 
