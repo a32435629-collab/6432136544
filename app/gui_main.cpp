@@ -43,6 +43,7 @@ HWND g_nav[5]{};
 HFONT g_font{}, g_fontBold{};
 std::wstring g_path;
 std::wstring g_page = L"Обзор";
+int g_activePage = 0;
 std::vector<std::uint8_t> g_bytes;
 std::unique_ptr<lulz::PEInfo> g_pe;
 std::unique_ptr<lulz::FunctionAnalysis> g_analysis;
@@ -105,6 +106,7 @@ void showPage(int page) {
     static const wchar_t* names[] = {L"Обзор", L"Диагностика", L"Секции PE", L"Импорты", L"Функции"};
     if (page < 0 || page >= 5) return;
     g_page = names[page];
+    g_activePage = page;
     for (int i=0;i<5;++i) {
         SendMessageW(g_nav[i], BM_SETSTATE, i==page, TRUE);
         InvalidateRect(g_nav[i], nullptr, TRUE);
@@ -196,17 +198,44 @@ LRESULT CALLBACK wndProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         g_title=makeControl(0,L"STATIC",L"Обзор",WS_CHILD|WS_VISIBLE,0,w);
         g_subtitle=makeControl(0,L"STATIC",L"Статический анализ исполняемых файлов Windows",WS_CHILD|WS_VISIBLE,0,w);
         g_file=makeControl(0,L"STATIC",L"Файл не выбран",WS_CHILD|WS_VISIBLE|SS_LEFT,0,w);
-        makeControl(0,L"BUTTON",L"Открыть файл",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,ID_OPEN,w);
+        makeControl(0,L"BUTTON",L"Открыть файл",WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,ID_OPEN,w);
         g_content=makeControl(WS_EX_CLIENTEDGE,L"EDIT",L"Откройте EXE или DLL, чтобы начать анализ.",WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|ES_WANTRETURN,ID_CONTENT,w);
         g_status=makeControl(0,L"STATIC",L"Готов к работе · файлы не запускаются",WS_CHILD|WS_VISIBLE,0,w);
         const int ids[]={ID_NAV_SUMMARY,ID_NAV_DIAGNOSTICS,ID_NAV_SECTIONS,ID_NAV_IMPORTS,ID_NAV_FUNCTIONS};
         const wchar_t* labels[]={L"Обзор",L"Диагностика",L"Секции PE",L"Импорты",L"Функции"};
-        for(int i=0;i<5;++i) g_nav[i]=makeControl(0,L"BUTTON",labels[i],WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,ids[i],w);
+        for(int i=0;i<5;++i) g_nav[i]=makeControl(0,L"BUTTON",labels[i],WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,ids[i],w);
         for(HWND h:{g_title,g_subtitle,g_file,g_content,g_status}) SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
         SendMessageW(g_title,WM_SETFONT,reinterpret_cast<WPARAM>(g_fontBold),TRUE);
         for(HWND h:g_nav) SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
         SendMessageW(GetDlgItem(w,ID_OPEN),WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
+        SendMessageW(g_content,EM_SETLIMITTEXT,16*1024*1024,0);
         layout(w); return 0;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps{}; HDC dc=BeginPaint(w,&ps); RECT r{}; GetClientRect(w,&r);
+        HBRUSH bg=CreateSolidBrush(BG); FillRect(dc,&r,bg); DeleteObject(bg);
+        RECT side{0,0,250,r.bottom}; HBRUSH panel=CreateSolidBrush(PANEL); FillRect(dc,&side,panel); DeleteObject(panel);
+        HPEN pen=CreatePen(PS_SOLID,1,RGB(43,54,72)); HPEN old=(HPEN)SelectObject(dc,pen);
+        MoveToEx(dc,249,0,nullptr); LineTo(dc,249,r.bottom); SelectObject(dc,old); DeleteObject(pen);
+        SetBkMode(dc,TRANSPARENT); SetTextColor(dc,TEXT);
+        HFONT oldFont=(HFONT)SelectObject(dc,g_fontBold); RECT brand{24,34,225,78}; DrawTextW(dc,L"LULZ-AI", -1,&brand,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+        SelectObject(dc,g_font); SetTextColor(dc,MUTED); RECT tagline{24,78,225,112}; DrawTextW(dc,L"PE ANALYSIS STUDIO",-1,&tagline,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+        SelectObject(dc,oldFont); EndPaint(w,&ps); return 0;
+    }
+    case WM_DRAWITEM: {
+        auto* dis=reinterpret_cast<DRAWITEMSTRUCT*>(lp);
+        if(dis && (dis->CtlID==ID_OPEN || (dis->CtlID>=ID_NAV_SUMMARY && dis->CtlID<=ID_NAV_FUNCTIONS))) {
+            const bool open=dis->CtlID==ID_OPEN;
+            const int index=open?-1:static_cast<int>(dis->CtlID-ID_NAV_SUMMARY);
+            const bool selected=!open && index==g_activePage;
+            const COLORREF fill=open?ACCENT:(selected?RGB(42,76,124):PANEL);
+            HBRUSH b=CreateSolidBrush(fill); FillRect(dis->hDC,&dis->rcItem,b); DeleteObject(b);
+            SetBkMode(dis->hDC,TRANSPARENT); SetTextColor(dis->hDC,open?RGB(255,255,255):(selected?RGB(255,255,255):TEXT));
+            RECT tr=dis->rcItem; InflateRect(&tr,-12,0);
+            DrawTextW(dis->hDC,open?L"Открыть файл":(index==0?L"Обзор":index==1?L"Диагностика":index==2?L"Секции PE":index==3?L"Импорты":L"Функции"),-1,&tr,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+            if(dis->itemState & ODS_FOCUS) DrawFocusRect(dis->hDC,&dis->rcItem);
+            return TRUE;
+        } break;
     }
     case WM_SIZE: layout(w); return 0;
     case WM_COMMAND:
