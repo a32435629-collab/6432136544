@@ -141,11 +141,11 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(malformedDelay.value().delayImports.empty());
     assert(!malformedDelay.value().warnings.empty());
 
+    auto runtime=lulz::parsePEExceptionDirectory(pe, parsed.value());
+    assert(runtime && runtime.value().size()==1);
     assert(runtime.value()[0].beginRva==0x1100);
     assert(runtime.value()[0].endRva==0x1150);
     assert(runtime.value()[0].unwindInfoRva==0x1200);
-    auto runtime=lulz::parsePEExceptionDirectory(pe, parsed.value());
-    assert(runtime && runtime.value().size()==1);
 
     // Version 2 epilog descriptors are one slot each; the first stores
     // length/AtEnd, later descriptors store a 12-bit offset.
