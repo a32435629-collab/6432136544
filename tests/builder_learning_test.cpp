@@ -40,6 +40,15 @@ int main() {
     assert(prediction->assemblyScore >= 0.0 && prediction->assemblyScore <= 1.0);
     assert(prediction->repairScore >= 0.0 && prediction->repairScore <= 1.0);
     assert(BuilderLearning::extractFeatures(parsed.value).size() == kBuilderFeatureCount);
+
+    // Real Analyzer reports encode function RVAs as hexadecimal strings.
+    const auto hexParsed = JsonParser(
+        R"({"format":"PE32+ x64","functions":[{"begin_rva":"0x1010","end_rva":"0x115a","calls":[]}],"imports":[]})"
+    ).parse();
+    assert(hexParsed.success);
+    const auto hexFeatures = BuilderLearning::extractFeatures(hexParsed.value);
+    assert(hexFeatures.size() == kBuilderFeatureCount);
+    assert(hexFeatures[14] == 0.0); // A valid hexadecimal range is not malformed.
     std::filesystem::remove_all(root, ec);
     std::cout << "Builder learning tests passed\n";
     return 0;
