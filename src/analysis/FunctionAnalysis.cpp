@@ -178,7 +178,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
                             call.target = it->second;
                             call.resolved = true;
                         } else {
-                            call.target = "IAT[" + hex32(call.targetRva) + "]";
+                            call.target = "indirect memory slot " + hex32(call.targetRva);
                         }
                         fn.calls.push_back(std::move(call));
                     }
@@ -197,7 +197,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
 }
 
 std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
-    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect targets other than RIP-relative IAT slots may remain unresolved.\", \"Indirect calls are resolved only for RIP-relative IAT forms FF 15/FF 25.\"],\n  \"analysis_warnings\": [";
+    std::ostringstream o; o<<"{\n  \"format\": \"PE32+ x64\",\n  \"image_base\": \""<<hex64(pe.imageBase)<<"\",\n  \"function_count\": "<<a.functions.size()<<",\n  \"unresolved_calls\": "<<a.unresolvedCalls<<",\n  \"function_boundary_source\": \"PE exception directory (.pdata)\",\n  \"call_scan_mode\": \"Zydis x64 instruction decoding\",\n  \"analysis_limits\": [\"Call sites are decoded instruction boundaries; indirect memory targets may remain unresolved.\", \"RIP-relative indirect calls are resolved only when their slot matches a parsed ordinary import IAT entry.\"],\n  \"analysis_warnings\": [";
     for(std::size_t i=0;i<a.warnings.size();++i){if(i)o<<",";o<<"\n    \""<<escapeJson(a.warnings[i])<<"\"";}
     if(!a.warnings.empty()) o<<"\n  ";
     o<<"],\n  \"pe_metadata\": {\"size_of_image\": "<<a.peMetadata.sizeOfImage
