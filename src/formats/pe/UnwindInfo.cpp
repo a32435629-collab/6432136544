@@ -380,20 +380,14 @@ Result<UnwindInfo> parsePEUnwindInfo(
             break;
 
         case 3: // UWOP_SET_FPREG
-            // The Windows x64 unwinder does not consume OpInfo for this opcode.
-            // Some system images duplicate FrameOffset in this reserved nibble.
-            // Accept that narrowly recognizable encoding, but keep other values
-            // invalid so arbitrary malformed metadata is not silently accepted.
+            // OpInfo is reserved for UWOP_SET_FPREG. Windows derives the
+            // frame register and scaled offset exclusively from the header.
+            // Ignore every OpInfo value; report nonzero values diagnostically
+            // rather than rejecting otherwise interpretable unwind metadata.
             if (oi != 0) {
-                if (oi != out.frameOffset) {
-                    return Result<UnwindInfo>::failure(
-                        "UWOP_SET_FPREG OpInfo does not match UNWIND_INFO FrameOffset"
-                    );
-                }
                 out.warnings.push_back(
                     "UWOP_SET_FPREG has nonzero reserved OpInfo=" +
-                    std::to_string(oi) +
-                    " matching FrameOffset; value ignored"
+                    std::to_string(oi) + "; value ignored"
                 );
             }
 
