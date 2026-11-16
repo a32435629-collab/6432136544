@@ -35,6 +35,7 @@ struct HeuristicFunctionCandidate {
 struct FunctionAnalysis {
     std::string entryPointSection;
     std::vector<std::uint8_t> entryPointBytes;
+    std::vector<std::string> entryPointInstructions;
     std::vector<HeuristicFunctionCandidate> heuristicCandidates;
     PEExtendedInfo peMetadata;
     std::vector<AnalyzedFunction> functions;
