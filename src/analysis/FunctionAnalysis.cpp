@@ -50,7 +50,6 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
     // Additional structural checks that require the complete section table.
     // These are diagnostics only: unusual flags/layouts are not proof of corruption.
     constexpr std::uint32_t kMemExecute = 0x20000000u;
-    constexpr std::uint32_t kMemRead = 0x40000000u;
     constexpr std::uint32_t kMemWrite = 0x80000000u;
     bool entryPointMapped = false;
     for (std::size_t i = 0; i < pe.sections.size(); ++i) {
@@ -84,7 +83,6 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
                     label + " and has no corresponding file bytes");
             }
         }
-        (void)kMemRead; // Retained as a named PE characteristic for future checks.
     }
     if (pe.entryPoint != 0 && !entryPointMapped) {
         result.warnings.push_back("PE structure: entry point RVA " + hex32(pe.entryPoint) +
