@@ -196,6 +196,14 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
     }
 
     result.functions.reserve(runtime.value().size());
+    // Many RUNTIME_FUNCTION entries can share one UNWIND_INFO record. Keep
+    // diagnostics useful by emitting each identical message only once.
+    std::set<std::string> emittedUnwindDiagnostics;
+    auto addUnwindDiagnostic = [&](std::string message) {
+        if (emittedUnwindDiagnostics.insert(message).second) {
+            result.warnings.push_back(std::move(message));
+        }
+    };
     for(const auto& fn:runtime.value()) {
         AnalyzedFunction af;
         af.range=fn;
@@ -204,13 +212,13 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
         if(!unwind) {
             af.unwindValid=false;
             af.unwindError=unwind.error();
-            result.warnings.push_back("UNWIND_INFO invalid for function at "+
+            addUnwindDiagnostic("UNWIND_INFO invalid for function at "+
                 hex32(fn.beginRva)+" ("+hex32(fn.unwindInfoRva)+
                 "); function boundaries retained: "+af.unwindError);
         } else {
             af.unwind=std::move(unwind.value());
             for (const auto& warning : af.unwind.warnings) {
-                result.warnings.push_back("UNWIND_INFO at " +
+                addUnwindDiagnostic("UNWIND_INFO at " +
                     hex32(fn.unwindInfoRva) + ": " + warning);
             }
 
@@ -232,7 +240,7 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
                     break;
                 }
                 for (const auto& warning : nested.value().warnings) {
-                    result.warnings.push_back("chained UNWIND_INFO at " +
+                    addUnwindDiagnostic("chained UNWIND_INFO at " +
                         hex32(next.unwindInfoRva) + ": " + warning);
                 }
                 af.chainedRecords.push_back(next);
