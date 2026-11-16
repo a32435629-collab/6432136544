@@ -335,5 +335,28 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(heuristicJson.find("heuristic_function_candidates") != std::string::npos);
     assert(heuristicJson.find("entry_point") != std::string::npos);
 
+    // PE structure diagnostics flag a writable+executable section and an
+    // entry point that is mapped to a section without execute permission.
+    auto suspiciousLayout = withoutPdata;
+    auto write32Suspicious = [&](std::size_t offset, std::uint32_t value) {
+        for (int n = 0; n < 4; ++n)
+            suspiciousLayout[offset + n] = std::uint8_t(value >> (n * 8));
+    };
+    write32Suspicious(0x98 + 16, 0x1000); // AddressOfEntryPoint
+    write32Suspicious(sh + 36, 0xA0000000u); // READ | WRITE, not EXECUTE
+    auto suspiciousInfo = lulz::parsePE(suspiciousLayout);
+    assert(suspiciousInfo);
+    auto suspiciousAnalysis = lulz::analyzePEFunctions(suspiciousLayout, suspiciousInfo.value());
+    assert(suspiciousAnalysis);
+    bool sawWx = false;
+    bool sawNonExecutableEntry = false;
+    for (const auto& warning : suspiciousAnalysis.value().warnings) {
+        sawWx = sawWx || warning.find("writable and executable") != std::string::npos;
+        sawNonExecutableEntry = sawNonExecutableEntry ||
+            warning.find("entry point is located") != std::string::npos;
+    }
+    assert(sawWx);
+    assert(sawNonExecutableEntry);
+
     std::cout<<"All foundation tests passed\n";
 }
