@@ -21,7 +21,17 @@ std::optional<std::size_t> mapRva(
         const std::uint64_t start = section.virtualAddress;
         if (target < start) continue;
         const std::uint64_t delta = target - start;
-        if (delta > section.rawSize || length > std::uint64_t(section.rawSize) - delta) continue;
+        const std::uint64_t span = std::max(section.virtualSize, section.rawSize);
+        if (delta >= span) continue;
+
+        // Once an RVA falls inside a section's virtual range, do not silently
+        // fall through to a later overlapping section when this range has no
+        // corresponding file bytes. Overlapping mappings are ambiguous.
+        if (delta >= section.rawSize ||
+            length > std::uint64_t(section.rawSize) - delta) {
+            return std::nullopt;
+        }
+
         const std::uint64_t offset = std::uint64_t(section.rawOffset) + delta;
         if (offset > bytes.size() || length > bytes.size() - static_cast<std::size_t>(offset)) return std::nullopt;
         return static_cast<std::size_t>(offset);
