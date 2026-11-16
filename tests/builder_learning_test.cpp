@@ -49,6 +49,22 @@ int main() {
     const auto hexFeatures = BuilderLearning::extractFeatures(hexParsed.value);
     assert(hexFeatures.size() == kBuilderFeatureCount);
     assert(hexFeatures[14] == 0.0); // A valid hexadecimal range is not malformed.
+
+    // CLR data-directory index 14 identifies a managed PE image even when
+    // native exception-based function boundaries are unavailable.
+    const auto managedParsed = JsonParser(
+        R"({"format":"PE32+ x64","functions":[],"pe_metadata":{"data_directories":[{"index":14,"address_kind":"rva","address":"0x2000","size":72}]}})"
+    ).parse();
+    assert(managedParsed.success);
+    const auto managedFeatures = BuilderLearning::extractFeatures(managedParsed.value);
+    assert(managedFeatures.size() == kBuilderFeatureCount);
+    assert(managedFeatures[17] == 1.0);
+
+    const auto nativeParsed = JsonParser(
+        R"({"format":"PE32+ x64","functions":[],"pe_metadata":{"data_directories":[{"index":3,"address_kind":"rva","address":"0x3000","size":12}]}})"
+    ).parse();
+    assert(nativeParsed.success);
+    assert(BuilderLearning::extractFeatures(nativeParsed.value)[17] == 0.0);
     std::filesystem::remove_all(root, ec);
     std::cout << "Builder learning tests passed\n";
     return 0;
