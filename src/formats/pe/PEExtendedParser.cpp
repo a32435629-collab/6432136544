@@ -171,6 +171,16 @@ void parseDelayImports(std::span<const std::uint8_t> bytes, PEExtendedInfo& out)
                 out.warnings.push_back("delay import name table leaves mapped section data");
                 return;
             }
+            const auto iatOffset = mapRva(
+                bytes, out.image, static_cast<std::uint32_t>(iatAddress), pointerSize);
+            if (!iatOffset) {
+                out.warnings.push_back("delay IAT slot is outside mapped section data");
+                return;
+            }
+            if (out.delayImports.size() >= 1'000'000) {
+                out.warnings.push_back("delay import symbol count exceeds safety limit");
+                return;
+            }
 
             std::uint64_t value = 0;
             if (out.image.is64) {
