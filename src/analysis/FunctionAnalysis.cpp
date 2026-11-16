@@ -197,42 +197,49 @@ Result<FunctionAnalysis> analyzePEFunctions(std::span<const std::uint8_t> bytes,
 
     result.functions.reserve(runtime.value().size());
     for(const auto& fn:runtime.value()) {
+        AnalyzedFunction af;
+        af.range=fn;
+
         auto unwind=parsePEUnwindInfo(bytes,pe,fn);
         if(!unwind) {
-            result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
-                " (UNWIND_INFO "+hex32(fn.unwindInfoRva)+"): "+unwind.error());
-            continue;
-        }
+            af.unwindValid=false;
+            af.unwindError=unwind.error();
+            result.warnings.push_back("UNWIND_INFO invalid for function at "+
+                hex32(fn.beginRva)+" ("+hex32(fn.unwindInfoRva)+
+                "); function boundaries retained: "+af.unwindError);
+        } else {
+            af.unwind=std::move(unwind.value());
 
-        AnalyzedFunction af; af.range=fn; af.unwind=std::move(unwind.value());
-        // Follow chained RUNTIME_FUNCTION records with cycle and depth protection.
-        std::set<std::uint32_t> seen{fn.unwindInfoRva};
-        auto chain=af.unwind;
-        bool chainValid=true;
-        for(unsigned depth=0;chain.chained && depth<32;++depth) {
-            const auto next=chain.chainedFunction;
-            if(!seen.insert(next.unwindInfoRva).second) {
-                result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
-                    " because CHAININFO contains a cycle");
-                chainValid=false;
-                break;
+            // A damaged chained record invalidates only chain metadata, not the
+            // primary RUNTIME_FUNCTION range or the function's instruction scan.
+            std::set<std::uint32_t> seen{fn.unwindInfoRva};
+            auto chain=af.unwind;
+            for(unsigned depth=0;chain.chained && depth<32;++depth) {
+                const auto next=chain.chainedFunction;
+                if(!seen.insert(next.unwindInfoRva).second) {
+                    af.chainValid=false;
+                    af.chainError="CHAININFO contains a cycle";
+                    break;
+                }
+                auto nested=parsePEUnwindInfo(bytes,pe,next);
+                if(!nested) {
+                    af.chainValid=false;
+                    af.chainError="chained UNWIND_INFO is invalid: "+nested.error();
+                    break;
+                }
+                af.chainedRecords.push_back(next);
+                chain=std::move(nested.value());
             }
-            auto nested=parsePEUnwindInfo(bytes,pe,next);
-            if(!nested) {
-                result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
-                    " because chained UNWIND_INFO is invalid: "+nested.error());
-                chainValid=false;
-                break;
+            if(af.chainValid && chain.chained) {
+                af.chainValid=false;
+                af.chainError="CHAININFO nesting exceeds 32 levels";
             }
-            af.chainedRecords.push_back(next);
-            chain=std::move(nested.value());
+            if(!af.chainValid) {
+                result.warnings.push_back("function at "+hex32(fn.beginRva)+
+                    " retained, but "+af.chainError);
+            }
         }
-        if(chainValid && chain.chained) {
-            result.warnings.push_back("skipped function at "+hex32(fn.beginRva)+
-                " because CHAININFO nesting exceeds 32 levels");
-            chainValid=false;
-        }
-        if(chainValid) result.functions.push_back(std::move(af));
+        result.functions.push_back(std::move(af));
     }
     std::sort(result.functions.begin(),result.functions.end(),[](const auto& a,const auto& b){return a.range.beginRva<b.range.beginRva;});
     std::map<std::uint32_t,std::string> iat;
@@ -397,7 +404,7 @@ std::string functionAnalysisToJson(const FunctionAnalysis& a,const PEInfo& pe) {
     }
     if(!a.peMetadata.delayImports.empty()) o<<"\n  ";
     o<<"],\n  \"functions\": [";
-    for(std::size_t i=0;i<a.functions.size();++i){const auto& f=a.functions[i];if(i)o<<",";o<<"\n    {\"begin_rva\": \""<<hex32(f.range.beginRva)<<"\", \"end_rva\": \""<<hex32(f.range.endRva)<<"\", \"size\": "<<(f.range.endRva-f.range.beginRva)<<", \"unwind_rva\": \""<<hex32(f.range.unwindInfoRva)<<"\", \"stack_consumed\": "<<f.unwind.stackAllocation<<", \"explicit_stack_allocation\": "<<f.unwind.explicitAllocation<<", \"frame_register\": \""<<frameRegName(f.unwind.frameRegister)<<"\", \"frame_offset_bytes\": "<<unsigned(f.unwind.frameOffset)*16<<", \"saved_registers\": [";
+    for(std::size_t i=0;i<a.functions.size();++i){const auto& f=a.functions[i];if(i)o<<",";o<<"\n    {\"begin_rva\": \""<<hex32(f.range.beginRva)<<"\", \"end_rva\": \""<<hex32(f.range.endRva)<<"\", \"size\": "<<(f.range.endRva-f.range.beginRva)<<", \"unwind_rva\": \""<<hex32(f.range.unwindInfoRva)<<"\", \"unwind_valid\": "<<(f.unwindValid?"true":"false")<<", \"unwind_error\": \""<<escapeJson(f.unwindError)<<"\", \"chain_valid\": "<<(f.chainValid?"true":"false")<<", \"chain_error\": \""<<escapeJson(f.chainError)<<"\", \"stack_consumed\": "<<f.unwind.stackAllocation<<", \"explicit_stack_allocation\": "<<f.unwind.explicitAllocation<<", \"frame_register\": \""<<frameRegName(f.unwind.frameRegister)<<"\", \"frame_offset_bytes\": "<<unsigned(f.unwind.frameOffset)*16<<", \"saved_registers\": [";
         for(std::size_t j=0;j<f.unwind.savedRegisters.size();++j){if(j)o<<", ";o<<"\""<<f.unwind.savedRegisters[j]<<"\"";}
         o<<"], \"saved_xmm_registers\": ["; for(std::size_t j=0;j<f.unwind.savedXmmRegisters.size();++j){if(j)o<<", ";o<<"\""<<f.unwind.savedXmmRegisters[j]<<"\"";}
         o<<"], \"chained_records\": ["; for(std::size_t j=0;j<f.chainedRecords.size();++j){if(j)o<<", ";o<<"{\"begin_rva\": \""<<hex32(f.chainedRecords[j].beginRva)<<"\", \"end_rva\": \""<<hex32(f.chainedRecords[j].endRva)<<"\", \"unwind_rva\": \""<<hex32(f.chainedRecords[j].unwindInfoRva)<<"\"}";}
