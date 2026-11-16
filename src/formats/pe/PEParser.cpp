@@ -401,6 +401,52 @@ Result<PEInfo> parsePE(
         info.sections.push_back(std::move(section));
     }
 
+    // Validate section ranges after parsing all entries so overlaps can be
+    // detected without rejecting otherwise inspectable images.
+    for (std::size_t i = 0; i < info.sections.size(); ++i) {
+        const auto& section = info.sections[i];
+        const std::uint64_t rawBegin = section.rawOffset;
+        const std::uint64_t rawEnd = rawBegin + section.rawSize;
+        const std::uint64_t virtualBegin = section.virtualAddress;
+        const std::uint64_t virtualSpan = std::max(section.virtualSize, section.rawSize);
+        const std::uint64_t virtualEnd = virtualBegin + virtualSpan;
+
+        if (section.name.empty()) {
+            info.warnings.push_back("section " + std::to_string(i) + " has an empty name");
+        }
+        if (section.rawSize != 0 &&
+            (rawBegin > bytes.size() || rawEnd > bytes.size())) {
+            info.warnings.push_back("section " + section.name +
+                " raw data extends beyond end of file");
+        }
+        if (virtualEnd > 0x100000000ull) {
+            info.warnings.push_back("section " + section.name +
+                " virtual address range overflows the RVA space");
+        }
+
+        for (std::size_t j = 0; j < i; ++j) {
+            const auto& previous = info.sections[j];
+            const std::uint64_t previousRawBegin = previous.rawOffset;
+            const std::uint64_t previousRawEnd = previousRawBegin + previous.rawSize;
+            const std::uint64_t previousVirtualBegin = previous.virtualAddress;
+            const std::uint64_t previousVirtualEnd = previousVirtualBegin +
+                std::max(previous.virtualSize, previous.rawSize);
+
+            if (section.rawSize != 0 && previous.rawSize != 0 &&
+                rawBegin < previousRawEnd && previousRawBegin < rawEnd) {
+                info.warnings.push_back("section " + section.name +
+                    " raw data overlaps section " + previous.name);
+            }
+            if (virtualSpan != 0 &&
+                std::max(previous.virtualSize, previous.rawSize) != 0 &&
+                virtualBegin < previousVirtualEnd &&
+                previousVirtualBegin < virtualEnd) {
+                info.warnings.push_back("section " + section.name +
+                    " virtual range overlaps section " + previous.name);
+            }
+        }
+    }
+
     return Result<PEInfo>::success(
         std::move(info)
     );
