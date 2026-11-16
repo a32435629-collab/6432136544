@@ -66,6 +66,7 @@ struct PEExtendedInfo {
     std::uint32_t checksum = 0;
     std::array<PEDataDirectory, 16> directories{};
     std::vector<PEExportSymbol> exports;
+    std::vector<ImportSymbol> delayImports;
     std::vector<PEBaseRelocation> relocations;
     std::vector<PECertificateEntry> certificates;
     std::vector<PEDebugEntry> debugEntries;
