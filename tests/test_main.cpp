@@ -177,6 +177,9 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
     assert(spareV2.value().stackAllocation==24);
 
 
+    // Restore the original version 1 fixture after the version 2 cases above.
+    pe[0x400]=0x01; pe[0x401]=4; pe[0x402]=1; pe[0x403]=0;
+    pe[0x404]=4; pe[0x405]=0x32;
     auto unwind=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
     assert(unwind && unwind.value().version==1);
     assert(unwind.value().stackAllocation==32);
