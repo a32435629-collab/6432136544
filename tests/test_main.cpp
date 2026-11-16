@@ -207,7 +207,7 @@ w32(0x500, 12); w16(0x504, 0x0200); w16(0x506, 2);
 
     // A truncated two-slot epilog descriptor is rejected safely.
     pe[0x402]=1;
-    pe[0x406]=0x06; pe[0x407]=0x06;
+    pe[0x404]=0x06; pe[0x405]=0x06; // EPILOG with OpInfo bit 0 clear
     auto truncatedEpilog=lulz::parsePEUnwindInfo(pe,parsed.value(),runtime.value()[0]);
     assert(!truncatedEpilog);
 
