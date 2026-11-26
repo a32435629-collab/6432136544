@@ -1,5 +1,6 @@
 #include "binary/BinaryFormats.hpp"
 #include "binary/BinaryImage.hpp"
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <vector>
@@ -45,6 +46,62 @@ std::vector<std::uint8_t> makeImageForStream(const std::vector<std::uint8_t>& st
     for (std::size_t i = 0; i < stream.size(); ++i) b[0x1c0 + i] = stream[i];
     return b;
 }
+
+std::vector<std::uint8_t> makeChainedImage(bool bind = false) {
+    std::vector<std::uint8_t> b(0x300);
+    put32(b,0,0xfeedfacf); put32(b,4,0x01000007); put32(b,8,3); put32(b,12,2);
+    put32(b,16,2); put32(b,20,168);
+    const std::size_t seg=32;
+    put32(b,seg,0x19); put32(b,seg+4,152);
+    put64(b,seg+24,0x100000000ull); put64(b,seg+32,0x1000);
+    put64(b,seg+40,0); put64(b,seg+48,0x300);
+    put32(b,seg+56,7); put32(b,seg+60,5); put32(b,seg+64,0);
+    const std::size_t fixcmd=seg+152;
+    put32(b,fixcmd,0x80000034u); put32(b,fixcmd+4,16);
+    put32(b,fixcmd+8,0x200);
+    put32(b,fixcmd+12,bind ? 73 : 62);
+    const std::size_t payload=0x200;
+    put32(b,payload,0); put32(b,payload+4,28);
+    put32(b,payload+8,bind ? 64 : 60);
+    put32(b,payload+12,bind ? 68 : 60);
+    put32(b,payload+16,bind ? 1 : 0);
+    put32(b,payload+20,1); put32(b,payload+24,0);
+    put32(b,payload+28,1); put32(b,payload+32,8);
+    put32(b,payload+36,26);
+    b[payload+40]=0x00; b[payload+41]=0x10; // page size 0x1000
+    b[payload+42]=0x06; b[payload+43]=0x00; // DYLD_CHAINED_PTR_64_OFFSET
+    put64(b,payload+44,0);
+    put32(b,payload+52,0);
+    b[payload+56]=1; b[payload+57]=0; // page_count=1
+    b[payload+58]=0x80; b[payload+59]=0x00; // page start 0x80
+    if (bind) {
+        put32(b,payload+64,0); // lib ordinal 0, weak false, name offset 0
+        b[payload+68]='_'; b[payload+69]='f'; b[payload+70]='o'; b[payload+71]='o'; b[payload+72]=0;
+        put64(b,0x80,(std::uint64_t{1}<<63));
+    } else {
+        put64(b,0x80,0x1234);
+    }
+    return b;
+}
+std::vector<std::uint8_t> makeFatImage(const std::vector<std::uint8_t>& thin) {
+    const std::size_t sliceOffset=0x1000;
+    std::vector<std::uint8_t> b(sliceOffset+thin.size());
+    b[0]=0xca; b[1]=0xfe; b[2]=0xba; b[3]=0xbe;
+    b[7]=1; // nfat_arch = 1, big endian
+    b[8]=0x01; b[9]=0x00; b[10]=0x00; b[11]=0x07; // CPU_TYPE_X86_64
+    b[15]=0x03; // subtype 3
+    b[16]=static_cast<std::uint8_t>((sliceOffset>>24)&0xff);
+    b[17]=static_cast<std::uint8_t>((sliceOffset>>16)&0xff);
+    b[18]=static_cast<std::uint8_t>((sliceOffset>>8)&0xff);
+    b[19]=static_cast<std::uint8_t>(sliceOffset&0xff);
+    const auto n=static_cast<std::uint32_t>(thin.size());
+    b[20]=static_cast<std::uint8_t>(n>>24); b[21]=static_cast<std::uint8_t>(n>>16);
+    b[22]=static_cast<std::uint8_t>(n>>8); b[23]=static_cast<std::uint8_t>(n);
+    b[27]=12; // 2^12 alignment
+    std::copy(thin.begin(),thin.end(),b.begin()+static_cast<std::ptrdiff_t>(sliceOffset));
+    return b;
+}
+
 bool hasDiagnostic(const lulz::binary::FormatInfo& info, const char* code) {
     for(const auto& d:info.diagnostics.diagnostics) if(d.code==code) return true;
     return false;
@@ -147,6 +204,31 @@ int main() {
         0x11, 0x40, '_','x',0, 0x70, 0x80, 0x01, 0x90
     }, 3)));
     assert(!badLazy.valid && hasDiagnostic(badLazy, "MACHO_LAZY_BIND_UNTERMINATED"));
+
+
+    auto chainedRebase = analyzeFormat(BinaryImage::fromBytes(makeChainedImage(false)));
+    assert(chainedRebase.valid && chainedRebase.chainedFixups.size() == 1);
+    assert(!chainedRebase.chainedFixups[0].bind);
+    assert(chainedRebase.chainedFixups[0].target == 0x1234);
+    assert(chainedRebase.chainedFixups[0].fileOffset == 0x80);
+
+    auto chainedBind = analyzeFormat(BinaryImage::fromBytes(makeChainedImage(true)));
+    assert(chainedBind.valid && chainedBind.chainedImports.size() == 1);
+    assert(chainedBind.chainedFixups.size() == 1 && chainedBind.chainedFixups[0].bind);
+    assert(chainedBind.chainedFixups[0].symbolName == "_foo");
+
+    auto fat = analyzeFormat(BinaryImage::fromBytes(makeFatImage(makeImage({}, false))));
+    assert(fat.valid && fat.format == Format::MachO);
+    assert(fat.universalArchitectures.size() == 1 && fat.universalArchitectures[0].valid);
+    auto unsupportedChained = makeChainedImage(false);
+    unsupportedChained[0x200 + 42] = 0x03;
+    auto unsupported = analyzeFormat(BinaryImage::fromBytes(unsupportedChained));
+    assert(!unsupported.valid && hasDiagnostic(unsupported, "MACHO_CHAINED_POINTER_FORMAT"));
+
+    auto malformedFat = makeFatImage(makeImage({}, false));
+    malformedFat[19] = 0xff;
+    auto badFat = analyzeFormat(BinaryImage::fromBytes(malformedFat));
+    assert(!badFat.valid && hasDiagnostic(badFat, "MACHO_FAT_SLICE_RANGE"));
 
     return 0;
 }

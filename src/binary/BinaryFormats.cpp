@@ -315,6 +315,76 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
         return info;
     }
 
+
+    // Universal (FAT) Mach-O containers use big-endian magic and table fields.
+    if (image.size() >= 8) {
+        const auto rawMagic = view.u32be(0).value_or(0);
+        const bool fat32 = rawMagic == 0xcafebabeu || rawMagic == 0xbebafecau;
+        const bool fat64 = rawMagic == 0xcafebabfu || rawMagic == 0xbfbafecau;
+        if (fat32 || fat64) {
+            info.format = Format::MachO;
+            const bool littleFat = rawMagic == 0xbebafecau || rawMagic == 0xbfbafecau;
+            const auto read32 = [&](std::size_t off) { return littleFat ? view.u32le(off).value_or(0) : view.u32be(off).value_or(0); };
+            const auto read64 = [&](std::size_t off) { return littleFat ? view.u64le(off).value_or(0) : view.u64be(off).value_or(0); };
+            const std::uint32_t count = read32(4);
+            const std::uint64_t entrySize = fat64 ? 32u : 20u;
+            if (count == 0 || count > 4096 || !rangeFits(8, static_cast<std::uint64_t>(count) * entrySize, image.size())) {
+                diag(info, "MACHO_FAT_ARCH_TABLE", "Universal Mach-O architecture table is empty, excessive, or truncated", 4);
+                info.valid = false;
+                return info;
+            }
+            std::vector<std::pair<std::uint64_t,std::uint64_t>> slices;
+            for (std::uint32_t i = 0; i < count; ++i) {
+                const auto p = static_cast<std::size_t>(8u + static_cast<std::uint64_t>(i) * entrySize);
+                MachOFatArchitecture arch;
+                arch.cpuType = read32(p);
+                arch.cpuSubtype = read32(p + 4);
+                arch.offset = fat64 ? read64(p + 8) : read32(p + 8);
+                arch.size = fat64 ? read64(p + 16) : read32(p + 12);
+                arch.alignment = read32(p + (fat64 ? 24 : 16));
+                arch.is64Bit = fat64;
+                const bool alignValid = arch.alignment < 63 &&
+                    (arch.offset % (std::uint64_t{1} << arch.alignment)) == 0;
+                arch.valid = arch.size != 0 && arch.offset >= 8u + static_cast<std::uint64_t>(count) * entrySize &&
+                    rangeFits(arch.offset, arch.size, image.size()) && alignValid;
+                if (!arch.valid) {
+                    diag(info, "MACHO_FAT_SLICE_RANGE", "Universal Mach-O slice has invalid bounds or alignment", p);
+                } else {
+                    for (const auto& prior : slices) {
+                        if (arch.offset < prior.second && prior.first < arch.offset + arch.size) {
+                            arch.valid = false;
+                            diag(info, "MACHO_FAT_SLICE_OVERLAP", "Universal Mach-O architecture slices overlap", p);
+                            break;
+                        }
+                    }
+                }
+                if (arch.valid) {
+                    slices.push_back({arch.offset, arch.offset + arch.size});
+                    std::vector<std::uint8_t> sliceBytes(
+                        bytes.begin() + static_cast<std::ptrdiff_t>(arch.offset),
+                        bytes.begin() + static_cast<std::ptrdiff_t>(arch.offset + arch.size));
+                    const bool thinMagic = sliceBytes.size() >= 4 &&
+                        ((sliceBytes[0] == 0xcf && sliceBytes[1] == 0xfa && sliceBytes[2] == 0xed && sliceBytes[3] == 0xfe) ||
+                         (sliceBytes[0] == 0xce && sliceBytes[1] == 0xfa && sliceBytes[2] == 0xed && sliceBytes[3] == 0xfe));
+                    FormatInfo sliceInfo;
+                    if (thinMagic)
+                        sliceInfo = analyzeFormat(BinaryImage::fromBytes(std::move(sliceBytes), image.source()));
+                    arch.valid = thinMagic && sliceInfo.format == Format::MachO && sliceInfo.valid &&
+                        sliceInfo.architecture == arch.cpuType &&
+                        ((sliceInfo.architectureSubtype & 0x00ffffffu) == (arch.cpuSubtype & 0x00ffffffu));
+                    if (!arch.valid)
+                        diag(info, "MACHO_FAT_SLICE_HEADER", "Universal Mach-O slice is not a valid matching thin Mach-O image", p);
+                }
+                info.universalArchitectures.push_back(arch);
+            }
+            info.is64Bit = fat64;
+            info.valid = info.diagnostics.valid &&
+                std::all_of(info.universalArchitectures.begin(), info.universalArchitectures.end(),
+                            [](const MachOFatArchitecture& a) { return a.valid; });
+            return info;
+        }
+    }
+
     if (image.size() >= 4) {
         const auto magic = view.u32le(0).value_or(0);
         if (magic == 0xfeedfacf || magic == 0xfeedface) {
@@ -353,6 +423,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t twoLevelHintsOffset = 0, twoLevelHintsCount = 0;
             bool hasCodeSignatureCommand = false;
             bool hasDyldInfoCommand = false;
+            bool hasChainedFixupsCommand = false;
+            std::uint32_t chainedFixupsOffset = 0, chainedFixupsSize = 0;
             std::array<std::uint32_t, 10> dyldStreamFields{};
             std::uint32_t codeSignatureOffset = 0, codeSignatureSize = 0;
             struct SectionRelocationTable { std::uint32_t offset; std::uint32_t count; std::uint64_t sectionSize; std::size_t diagnosticOffset; };
@@ -581,6 +653,19 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     hasDyldInfoCommand = true;
                     for (std::size_t field = 0; field < dyldStreamFields.size(); ++field)
                         dyldStreamFields[field] = view.u32le(base + 8 + field * 4).value_or(0);
+                } else if (command == 0x80000034u) { // LC_DYLD_CHAINED_FIXUPS
+                    const auto base = static_cast<std::size_t>(cursor);
+                    if (size < 16) {
+                        diag(info, "MACHO_CHAINED_COMMAND_TRUNCATED", "LC_DYLD_CHAINED_FIXUPS command is smaller than 16 bytes", base);
+                        break;
+                    }
+                    if (hasChainedFixupsCommand) {
+                        diag(info, "MACHO_CHAINED_COMMAND_DUPLICATE", "Mach-O image contains duplicate LC_DYLD_CHAINED_FIXUPS commands", base);
+                        break;
+                    }
+                    hasChainedFixupsCommand = true;
+                    chainedFixupsOffset = view.u32le(base + 8).value_or(0);
+                    chainedFixupsSize = view.u32le(base + 12).value_or(0);
                 } else if (command == 0x1du) { // LC_CODE_SIGNATURE
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 16) {
@@ -1175,6 +1260,201 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             continue;
                         }
                         info.twoLevelHints.push_back({subImage, tocIndex});
+                    }
+                }
+            }
+
+
+            if (hasChainedFixupsCommand) {
+                constexpr std::size_t headerSize = 28;
+                if (chainedFixupsSize < headerSize ||
+                    !rangeFits(chainedFixupsOffset, chainedFixupsSize, image.size())) {
+                    diag(info, "MACHO_CHAINED_DATA_RANGE", "Chained-fixups payload is too small or extends beyond the file", chainedFixupsOffset);
+                } else {
+                    const std::uint64_t payload = chainedFixupsOffset;
+                    const std::uint64_t payloadEnd = payload + chainedFixupsSize;
+                    const auto u32 = [&](std::uint64_t off) -> std::uint32_t {
+                        return view.u32le(static_cast<std::size_t>(off)).value_or(0);
+                    };
+                    const auto version = u32(payload);
+                    const auto startsOffset = u32(payload + 4);
+                    const auto importsOffset = u32(payload + 8);
+                    const auto symbolsOffset = u32(payload + 12);
+                    const auto importsCount = u32(payload + 16);
+                    const auto importsFormat = u32(payload + 20);
+                    const auto symbolsFormat = u32(payload + 24);
+                    if (version != 0 || startsOffset < headerSize || startsOffset >= chainedFixupsSize ||
+                        importsOffset < headerSize || importsOffset > chainedFixupsSize ||
+                        symbolsOffset < headerSize || symbolsOffset > chainedFixupsSize) {
+                        diag(info, "MACHO_CHAINED_HEADER", "Chained-fixups header contains unsupported version or out-of-range offsets", chainedFixupsOffset);
+                    } else if (symbolsFormat != 0) {
+                        diag(info, "MACHO_CHAINED_SYMBOLS_FORMAT", "Compressed chained-fixups symbol pools are not supported", chainedFixupsOffset + 24);
+                    } else {
+                        const std::uint64_t importEntrySize = importsFormat == 1 ? 4u :
+                            importsFormat == 2 ? 8u : importsFormat == 3 ? 16u : 0u;
+                        const std::uint64_t importBytes = static_cast<std::uint64_t>(importsCount) * importEntrySize;
+                        if (importEntrySize == 0 || importsCount > 1000000 ||
+                            !rangeFits(payload + importsOffset, importBytes, static_cast<std::size_t>(payloadEnd)) ||
+                            importsOffset + importBytes > symbolsOffset) {
+                            diag(info, "MACHO_CHAINED_IMPORTS_RANGE", "Chained-fixups import table has an unsupported format or invalid bounds", chainedFixupsOffset + importsOffset);
+                        } else {
+                            const std::uint64_t symbolPoolEnd = payloadEnd;
+                            info.chainedImports.reserve(importsCount);
+                            for (std::uint32_t i = 0; i < importsCount; ++i) {
+                                const auto entry = payload + importsOffset + static_cast<std::uint64_t>(i) * importEntrySize;
+                                std::uint32_t nameOffset = 0;
+                                MachOChainedImport imp;
+                                if (importsFormat == 1 || importsFormat == 2) {
+                                    const auto raw = u32(entry);
+                                    imp.libraryOrdinal = static_cast<std::int8_t>(raw & 0xffu);
+                                    imp.weak = ((raw >> 8) & 1u) != 0;
+                                    nameOffset = raw >> 9;
+                                    if (importsFormat == 2) imp.addend = view.i32le(static_cast<std::size_t>(entry + 4)).value_or(0);
+                                } else {
+                                    const auto raw = view.u64le(static_cast<std::size_t>(entry)).value_or(0);
+                                    imp.libraryOrdinal = static_cast<std::int16_t>(raw & 0xffffu);
+                                    imp.weak = ((raw >> 16) & 1u) != 0;
+                                    nameOffset = static_cast<std::uint32_t>(raw >> 32);
+                                    imp.addend = view.i64le(static_cast<std::size_t>(entry + 8)).value_or(0);
+                                }
+                                const auto nameAt = payload + symbolsOffset + nameOffset;
+                                if (nameAt < payload + symbolsOffset || nameAt >= symbolPoolEnd) {
+                                    diag(info, "MACHO_CHAINED_IMPORT_NAME", "Chained-fixups import name offset is outside the symbol pool", static_cast<std::size_t>(entry));
+                                    continue;
+                                }
+                                const auto name = view.cString(static_cast<std::size_t>(nameAt),
+                                    static_cast<std::size_t>(symbolPoolEnd - nameAt));
+                                if (!name) {
+                                    diag(info, "MACHO_CHAINED_IMPORT_NAME", "Chained-fixups import name is not NUL-terminated", static_cast<std::size_t>(nameAt));
+                                    continue;
+                                }
+                                imp.symbolName = *name;
+                                info.chainedImports.push_back(std::move(imp));
+                            }
+
+                            const std::uint64_t starts = payload + startsOffset;
+                            if (!rangeFits(starts, 4, static_cast<std::size_t>(payloadEnd))) {
+                                diag(info, "MACHO_CHAINED_STARTS_RANGE", "Chained-fixups starts-in-image header is truncated", static_cast<std::size_t>(starts));
+                            } else {
+                                const auto segCount = u32(starts);
+                                if (segCount > machoSegments.size() || segCount > 4096 ||
+                                    !rangeFits(starts + 4, static_cast<std::uint64_t>(segCount) * 4u, static_cast<std::size_t>(payloadEnd))) {
+                                    diag(info, "MACHO_CHAINED_SEGMENT_COUNT", "Chained-fixups segment-offset array is invalid", static_cast<std::size_t>(starts));
+                                } else {
+                                    for (std::uint32_t segIndex = 0; segIndex < segCount; ++segIndex) {
+                                        const auto rel = u32(starts + 4 + static_cast<std::uint64_t>(segIndex) * 4u);
+                                        if (rel == 0) continue;
+                                        const auto segInfo = starts + rel;
+                                        if (segInfo < starts || !rangeFits(segInfo, 22, static_cast<std::size_t>(payloadEnd))) {
+                                            diag(info, "MACHO_CHAINED_SEGMENT_STARTS", "Chained-fixups segment-starts structure is truncated", static_cast<std::size_t>(segInfo));
+                                            continue;
+                                        }
+                                        const auto structSize = u32(segInfo);
+                                        const auto pageSize = view.u16le(static_cast<std::size_t>(segInfo + 4)).value_or(0);
+                                        const auto pointerFormat = view.u16le(static_cast<std::size_t>(segInfo + 6)).value_or(0);
+                                        const auto segmentOffset = view.u64le(static_cast<std::size_t>(segInfo + 8)).value_or(0);
+                                        const auto pageCount = view.u16le(static_cast<std::size_t>(segInfo + 20)).value_or(0);
+                                        if (structSize < 22u + static_cast<std::uint64_t>(pageCount) * 2u ||
+                                            !rangeFits(segInfo, structSize, static_cast<std::size_t>(payloadEnd)) ||
+                                            pageSize == 0 || (pageSize & (pageSize - 1u)) != 0 ||
+                                            pageCount > 32768 || segmentOffset != machoSegments[segIndex].address - info.imageBase && info.imageBase != 0) {
+                                            diag(info, "MACHO_CHAINED_SEGMENT_INFO", "Chained-fixups segment-starts metadata is invalid", static_cast<std::size_t>(segInfo));
+                                            continue;
+                                        }
+                                        const auto& seg = machoSegments[segIndex];
+                                        if (segmentOffset != seg.address - machoSegments.front().address) {
+                                            // segment_offset is an image-relative VM offset; do not reject
+                                            // non-zero image bases, but flag impossible offsets.
+                                            if (segmentOffset > (std::uint64_t{1} << 48)) {
+                                                diag(info, "MACHO_CHAINED_SEGMENT_OFFSET", "Chained-fixups segment offset is implausibly large", static_cast<std::size_t>(segInfo + 8));
+                                                continue;
+                                            }
+                                        }
+                                        if (pointerFormat != 2 && pointerFormat != 6) {
+                                            diag(info, "MACHO_CHAINED_POINTER_FORMAT", "Chained-fixups pointer format is not yet supported by this parser", static_cast<std::size_t>(segInfo + 6));
+                                            continue;
+                                        }
+                                        const auto startsArray = segInfo + 22;
+                                        const auto stride = 4u;
+                                        const auto decodeChain = [&](std::uint64_t startOffset, std::uint32_t pageIndex) {
+                                            std::uint64_t loc = static_cast<std::uint64_t>(pageIndex) * pageSize + startOffset;
+                                            std::size_t chainSteps = 0;
+                                            while (chainSteps++ < 65536) {
+                                                if (loc > seg.size || 8u > seg.size - loc ||
+                                                    loc > seg.virtualSize || 8u > seg.virtualSize - loc ||
+                                                    seg.offset > std::numeric_limits<std::uint64_t>::max() - loc ||
+                                                    seg.address > std::numeric_limits<std::uint64_t>::max() - loc) {
+                                                    diag(info, "MACHO_CHAINED_LOCATION", "Chained pointer location exceeds its segment", static_cast<std::size_t>(segInfo));
+                                                    return;
+                                                }
+                                                const auto fileLoc = seg.offset + loc;
+                                                if (!rangeFits(fileLoc, 8, image.size())) {
+                                                    diag(info, "MACHO_CHAINED_FILE_RANGE", "Chained pointer location is not backed by file data", static_cast<std::size_t>(fileLoc));
+                                                    return;
+                                                }
+                                                const auto raw = view.u64le(static_cast<std::size_t>(fileLoc)).value_or(0);
+                                                const bool bind = ((raw >> 63) & 1u) != 0;
+                                                const auto next = static_cast<std::uint16_t>((raw >> 51) & 0xfffu);
+                                                MachOChainedFixupEntry fix;
+                                                fix.segmentIndex = segIndex;
+                                                fix.pointerFormat = pointerFormat;
+                                                fix.segmentOffset = loc;
+                                                fix.address = seg.address + loc;
+                                                fix.fileOffset = fileLoc;
+                                                fix.bind = bind;
+                                                fix.next = next;
+                                                if (bind) {
+                                                    const auto ordinal = static_cast<std::uint32_t>(raw & 0xffffffu);
+                                                    const auto signedAddend = static_cast<std::int8_t>((raw >> 24) & 0xffu);
+                                                    if (ordinal >= info.chainedImports.size()) {
+                                                        diag(info, "MACHO_CHAINED_BIND_ORDINAL", "Chained pointer references a missing import-table entry", static_cast<std::size_t>(fileLoc));
+                                                        return;
+                                                    }
+                                                    fix.importIndex = ordinal;
+                                                    fix.symbolName = info.chainedImports[ordinal].symbolName;
+                                                    fix.libraryOrdinal = info.chainedImports[ordinal].libraryOrdinal;
+                                                    fix.addend = info.chainedImports[ordinal].addend + signedAddend;
+                                                } else {
+                                                    fix.target = raw & 0xfffffffffull;
+                                                    if (pointerFormat == 2) {
+                                                        const auto high8 = (raw >> 36) & 0xffu;
+                                                        fix.target |= high8 << 56;
+                                                    }
+                                                }
+                                                info.chainedFixups.push_back(std::move(fix));
+                                                if (next == 0) return;
+                                                const std::uint64_t advance = static_cast<std::uint64_t>(next) * stride;
+                                                if (advance > pageSize || loc % pageSize > pageSize - advance) {
+                                                    diag(info, "MACHO_CHAINED_NEXT_RANGE", "Chained pointer next offset leaves its page", static_cast<std::size_t>(fileLoc));
+                                                    return;
+                                                }
+                                                loc += advance;
+                                            }
+                                            diag(info, "MACHO_CHAINED_LOOP_LIMIT", "Chained pointer chain exceeds the safety limit", static_cast<std::size_t>(segInfo));
+                                        };
+                                        for (std::uint32_t page = 0; page < pageCount; ++page) {
+                                            const auto start = view.u16le(static_cast<std::size_t>(startsArray + page * 2u)).value_or(0xffffu);
+                                            if (start == 0xffffu) continue;
+                                            if ((start & 0x8000u) != 0) {
+                                                const auto overflowIndex = static_cast<std::uint32_t>(start & 0x7fffu);
+                                                const auto overflowBase = startsArray;
+                                                bool last = false;
+                                                for (std::uint32_t n = overflowIndex; n < structSize / 2u - 11u && !last; ++n) {
+                                                    const auto item = view.u16le(static_cast<std::size_t>(overflowBase + n * 2u));
+                                                    if (!item) break;
+                                                    last = (*item & 0x8000u) != 0;
+                                                    decodeChain(*item & 0x7fffu, page);
+                                                }
+                                                if (!last)
+                                                    diag(info, "MACHO_CHAINED_MULTI_START", "Chained-fixups multi-start list is unterminated or out of bounds", static_cast<std::size_t>(overflowBase + overflowIndex * 2u));
+                                            } else {
+                                                decodeChain(start, page);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
