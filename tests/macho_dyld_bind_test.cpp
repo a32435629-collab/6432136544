@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 namespace {
@@ -218,6 +219,13 @@ int main() {
 
 
     auto chainedRebase = analyzeFormat(BinaryImage::fromBytes(makeChainedImage(false)));
+    if (!chainedRebase.valid || chainedRebase.chainedFixups.size() != 1) {
+        for (const auto& diagnostic : chainedRebase.diagnostics.diagnostics)
+            std::fprintf(stderr, "Mach-O chained rebase diagnostic: %s: %s (offset=%zu)\\n",
+                         diagnostic.code.c_str(), diagnostic.message.c_str(), diagnostic.offset);
+        std::fprintf(stderr, "Mach-O chained rebase: valid=%d fixups=%zu\\n",
+                     chainedRebase.valid ? 1 : 0, chainedRebase.chainedFixups.size());
+    }
     assert(chainedRebase.valid && chainedRebase.chainedFixups.size() == 1);
     assert(!chainedRebase.chainedFixups[0].bind);
     assert(chainedRebase.chainedFixups[0].target == 0x1234);
