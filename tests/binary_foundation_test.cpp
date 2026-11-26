@@ -116,6 +116,20 @@ int main() {
     assert(emptyLoaded.size() == 0);
     std::filesystem::remove(loaderPath);
 
+
+    // Generic validation: limits, recognized truncated headers, and raw blobs.
+    assert(validateImage(BinaryImage::fromBytes({0x7f, 'E', 'L'})).diagnostics[0].code ==
+           "BIN_TRUNCATED_SIGNATURE");
+    assert(!validateImage(BinaryImage::fromBytes({'M', 'Z'})).valid);
+    assert(!validateImage(BinaryImage::fromBytes({0x7f, 'E', 'L', 'F', 2, 1, 1})).valid);
+    ValidationOptions strictValidation;
+    strictValidation.maxBytes = 4;
+    assert(!validateImage(BinaryImage::fromBytes({1, 2, 3, 4, 5}), strictValidation).valid);
+    assert(validateImage(BinaryImage::fromBytes({0xde, 0xad, 0xbe, 0xef})).valid);
+    ValidationOptions signatureChecksOff;
+    signatureChecksOff.validateKnownHeader = false;
+    assert(validateImage(BinaryImage::fromBytes({'M', 'Z'}), signatureChecksOff).valid);
+
     assert(validateImage(img).valid);
     assert(!validateImage(BinaryImage::fromBytes({})).valid);
 
