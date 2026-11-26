@@ -129,7 +129,8 @@ int main() {
 
     // A malformed Guard CF table must be diagnosed without rejecting the PE.
     auto broken = pe;
-    w64(0x400 + 128, 0x1400017ffull);
+    for (int n = 0; n < 8; ++n)
+        broken[0x400 + 128 + n] = static_cast<std::uint8_t>(0x1400017ffull >> (n * 8));
     auto brokenExtended = lulz::parsePEExtended(broken);
     assert(brokenExtended);
     auto brokenMetadata = lulz::parsePEWindowsMetadata(broken, brokenExtended.value());
