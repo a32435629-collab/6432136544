@@ -163,6 +163,8 @@ if(DLL_LULZ_BUILD_TESTS)
 
     add_executable(lulz_pe_windows_metadata_tests tests/pe_windows_metadata_test.cpp)
     add_executable(lulz_instruction_ir_tests tests/instruction_ir_test.cpp)
+    add_executable(lulz_macho_dyld_rebase_tests tests/macho_dyld_rebase_test.cpp)
+    target_link_libraries(lulz_macho_dyld_rebase_tests PRIVATE lulz_core)
     target_link_libraries(lulz_instruction_ir_tests PRIVATE lulz_core)
     target_link_libraries(lulz_pe_windows_metadata_tests PRIVATE lulz_core)
 
@@ -174,7 +176,9 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_subsystem_tests
             lulz_ai_tests
             lulz_pe_windows_metadata_tests
+            lulz_macho_dyld_rebase_tests
             lulz_instruction_ir_tests
+            lulz_macho_dyld_rebase_tests
         )
             target_compile_options(${test_target} PRIVATE /UNDEBUG)
         endforeach()
@@ -208,6 +212,7 @@ if(DLL_LULZ_BUILD_TESTS)
     add_test(NAME lulz_binary_foundation_tests COMMAND lulz_binary_foundation_tests)
     add_test(NAME lulz_pe_windows_metadata_tests COMMAND lulz_pe_windows_metadata_tests)
     add_test(NAME lulz_instruction_ir_tests COMMAND lulz_instruction_ir_tests)
+    add_test(NAME lulz_macho_dyld_rebase_tests COMMAND lulz_macho_dyld_rebase_tests)
 endif()
 
 # Optional benchmarks
