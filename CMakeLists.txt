@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(DLL_LULZ_AI VERSION 0.8.0 LANGUAGES CXX)
+project(DLL_LULZ_AI VERSION 0.9.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,7 +31,7 @@ FetchContent_MakeAvailable(zydis)
 add_library(lulz_core
     src/core/Logger.cpp
     src/loaders/FileLoader.cpp
-    src/binary/BinaryReader.cpp
+    src/binary/BinaryImage.cpp\n    src/binary/BinaryView.cpp\n    src/binary/BinaryValidation.cpp\n    src/binary/BinaryReader.cpp
     src/binary/BinaryWriter.cpp
     src/hex/HexParser.cpp
     src/hex/HexFormatter.cpp
@@ -165,7 +165,7 @@ endif()
 message(STATUS "================================")
 message(STATUS " DLL_LULZ_AI ${PROJECT_VERSION}")
 message(STATUS " AI Architecture: Dual AI (Analyzer + Builder)")
-message(STATUS " AI Core: 0.8.0")
+message(STATUS " AI Core: 0.9.0 Binary Intelligence Foundation")
 message(STATUS " AI Analysis: 0.8.0")
 message(STATUS " AI Features: 0.8.0")
 message(STATUS " AI Neural: 0.8.0")
