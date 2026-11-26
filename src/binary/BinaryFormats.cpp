@@ -388,7 +388,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
     }
 
     if (image.size() >= 4) {
-        const auto rawMagic = readU32(0).value_or(0);
+        // Read the initial magic as little-endian first; this detects both byte orders.
+        const auto rawMagic = view.u32le(0).value_or(0);
         info.isBigEndian = rawMagic == 0xcefaedfeu || rawMagic == 0xcffaedfeu;
         const auto readU16 = [&](std::size_t p) { return info.isBigEndian ? view.u16be(p) : view.u16le(p); };
         const auto readU32 = [&](std::size_t p) { return info.isBigEndian ? view.u32be(p) : view.u32le(p); };
@@ -1284,8 +1285,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 hasChainedFixupsCommand = false;
             }
             if (hasChainedFixupsCommand) {
-                constexpr std::size_t headerSize = 28;
-                if (chainedFixupsSize < headerSize ||
+                constexpr std::size_t chainedHeaderSize = 28;
+                if (chainedFixupsSize < chainedHeaderSize ||
                     !rangeFits(chainedFixupsOffset, chainedFixupsSize, image.size())) {
                     diag(info, "MACHO_CHAINED_DATA_RANGE", "Chained-fixups payload is too small or extends beyond the file", chainedFixupsOffset);
                 } else {
