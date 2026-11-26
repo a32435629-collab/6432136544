@@ -1302,9 +1302,9 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     const auto importsCount = u32(payload + 16);
                     const auto importsFormat = u32(payload + 20);
                     const auto symbolsFormat = u32(payload + 24);
-                    if (version != 0 || startsOffset < headerSize || startsOffset >= chainedFixupsSize ||
-                        importsOffset < headerSize || importsOffset > chainedFixupsSize ||
-                        symbolsOffset < headerSize || symbolsOffset > chainedFixupsSize) {
+                    if (version != 0 || startsOffset < chainedHeaderSize || startsOffset >= chainedFixupsSize ||
+                        importsOffset < chainedHeaderSize || importsOffset > chainedFixupsSize ||
+                        symbolsOffset < chainedHeaderSize || symbolsOffset > chainedFixupsSize) {
                         diag(info, "MACHO_CHAINED_HEADER", "Chained-fixups header contains unsupported version or out-of-range offsets", chainedFixupsOffset);
                     } else if (symbolsFormat != 0) {
                         diag(info, "MACHO_CHAINED_SYMBOLS_FORMAT", "Compressed chained-fixups symbol pools are not supported", chainedFixupsOffset + 24);
