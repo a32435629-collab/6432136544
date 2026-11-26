@@ -1,6 +1,7 @@
 #include "binary/BinaryView.hpp"
 
 #include <bit>
+#include <type_traits>
 
 namespace lulz::binary {
 namespace {
@@ -74,7 +75,7 @@ std::optional<std::int64_t> BinaryView::i64be(std::size_t offset) const noexcept
 std::optional<std::span<const std::uint8_t>> BinaryView::bytes(
     std::size_t offset, std::size_t length) const noexcept {
     if (!contains(offset, length)) return std::nullopt;
-    return std::span<const std::uint8_t>(image_.bytes().data() + offset, length);
+    return std::span<const std::uint8_t>(image_.bytes()).subspan(offset, length);
 }
 
 std::optional<std::string> BinaryView::fixedString(
