@@ -1,6 +1,7 @@
 #include "binary/BinaryFormats.hpp"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <utility>
 
@@ -350,6 +351,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             bool hasTwoLevelHintsCommand = false;
             std::uint32_t twoLevelHintsOffset = 0, twoLevelHintsCount = 0;
             bool hasCodeSignatureCommand = false;
+            bool hasDyldInfoCommand = false;
+            std::array<std::uint32_t, 10> dyldStreamFields{};
             std::uint32_t codeSignatureOffset = 0, codeSignatureSize = 0;
             struct SectionRelocationTable { std::uint32_t offset; std::uint32_t count; std::uint64_t sectionSize; std::size_t diagnosticOffset; };
             std::vector<SectionRelocationTable> sectionRelocationTables;
@@ -560,6 +563,21 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     hasTwoLevelHintsCommand = true;
                     twoLevelHintsOffset = view.u32le(base + 8).value_or(0);
                     twoLevelHintsCount = view.u32le(base + 12).value_or(0);
+                } else if (command == 0x22u || command == 0x80000022u) { // LC_DYLD_INFO / LC_DYLD_INFO_ONLY
+                    const auto base = static_cast<std::size_t>(cursor);
+                    if (size < 48) {
+                        diag(info, "MACHO_DYLD_INFO_TRUNCATED",
+                             "LC_DYLD_INFO command is smaller than its required fields", base);
+                        break;
+                    }
+                    if (hasDyldInfoCommand) {
+                        diag(info, "MACHO_DYLD_INFO_DUPLICATE",
+                             "Mach-O image contains more than one LC_DYLD_INFO command", base);
+                        break;
+                    }
+                    hasDyldInfoCommand = true;
+                    for (std::size_t field = 0; field < dyldStreamFields.size(); ++field)
+                        dyldStreamFields[field] = view.u32le(base + 8 + field * 4).value_or(0);
                 } else if (command == 0x1du) { // LC_CODE_SIGNATURE
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 16) {
@@ -567,7 +585,37 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                              "LC_CODE_SIGNATURE command is smaller than its required fields", base);
                         break;
                     }
-                    if (hasCodeSignatureCommand) {
+                    if (hasDyldInfoCommand) {
+                constexpr MachODyldStreamKind kinds[] = {
+                    MachODyldStreamKind::Rebase, MachODyldStreamKind::Bind,
+                    MachODyldStreamKind::WeakBind, MachODyldStreamKind::LazyBind,
+                    MachODyldStreamKind::Export
+                };
+                constexpr const char* rangeCodes[] = {
+                    "MACHO_DYLD_REBASE_RANGE", "MACHO_DYLD_BIND_RANGE",
+                    "MACHO_DYLD_WEAK_BIND_RANGE", "MACHO_DYLD_LAZY_BIND_RANGE",
+                    "MACHO_DYLD_EXPORT_RANGE"
+                };
+                constexpr const char* rangeMessages[] = {
+                    "Mach-O dyld rebase stream extends beyond the file",
+                    "Mach-O dyld bind stream extends beyond the file",
+                    "Mach-O dyld weak-bind stream extends beyond the file",
+                    "Mach-O dyld lazy-bind stream extends beyond the file",
+                    "Mach-O dyld export stream extends beyond the file"
+                };
+                for (std::size_t stream = 0; stream < 5; ++stream) {
+                    const auto offset = dyldStreamFields[stream * 2];
+                    const auto length = dyldStreamFields[stream * 2 + 1];
+                    if (length == 0) continue;
+                    if (!rangeFits(offset, length, image.size())) {
+                        diag(info, rangeCodes[stream], rangeMessages[stream], offset);
+                        continue;
+                    }
+                    info.dyldStreams.push_back({kinds[stream], offset, length});
+                }
+            }
+
+            if (hasCodeSignatureCommand) {
                         diag(info, "MACHO_CODE_SIGNATURE_DUPLICATE",
                              "Mach-O image contains more than one LC_CODE_SIGNATURE command", base);
                         break;
