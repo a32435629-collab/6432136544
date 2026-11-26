@@ -89,5 +89,27 @@ int main() {
         0x40,'_','x',0,0x70,0x80,0x01,0x90
     },true)));
     assert(!bindNoDone.valid && hasDiagnostic(bindNoDone,"MACHO_BIND_UNTERMINATED"));
+
+    // Minimal export trie: root -> "_foo" terminal, flags=0, address=0x80.
+    auto exportImage = makeImage({}, false);
+    put32(exportImage, 32 + 152 + 24 + 40, 0x1c0); // export_off (LC_DYLD_INFO field 8)
+    put32(exportImage, 32 + 152 + 24 + 44, 7);    // export_size
+    const std::uint8_t trie[] = {0x00, 0x01, '_','f','o','o',0x00, 0x08, 0x03, 0x00, 0x80, 0x01, 0x00};
+    exportImage.resize(0x1c0 + sizeof(trie));
+    for (std::size_t i = 0; i < sizeof(trie); ++i) exportImage[0x1c0 + i] = trie[i];
+    // Correct the stream size to the complete trie.
+    put32(exportImage, 32 + 152 + 24 + 8 + 12, sizeof(trie));
+    auto exported = analyzeFormat(BinaryImage::fromBytes(exportImage));
+    assert(exported.valid && exported.exports.size() == 1);
+    assert(exported.exports[0].name == "_foo");
+    assert(exported.exports[0].address == 0x80);
+
+    auto malformedTrie = exportImage;
+    malformedTrie[0x1c0 + 8] = 0xff;
+    auto badExport = analyzeFormat(BinaryImage::fromBytes(malformedTrie));
+    assert(!badExport.valid);
+    assert(hasDiagnostic(badExport, "MACHO_EXPORT_CHILD_OFFSET") ||
+           hasDiagnostic(badExport, "MACHO_EXPORT_NODE_OFFSET"));
+
     return 0;
 }

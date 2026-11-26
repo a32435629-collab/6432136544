@@ -953,6 +953,112 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 }
             }
 
+
+                // Export trie: bounded graph traversal with cycle and malformed-node checks.
+                const auto exportOffset = dyldStreamFields[8];
+                const auto exportSize = dyldStreamFields[9];
+                if (exportSize != 0 && rangeFits(exportOffset, exportSize, image.size())) {
+                    constexpr std::size_t maxExportNodes = 100000;
+                    const std::uint64_t exportEnd = static_cast<std::uint64_t>(exportOffset) + exportSize;
+                    std::vector<std::uint8_t> visited(exportSize, 0);
+                    std::vector<std::pair<std::uint64_t, std::string>> pending;
+                    pending.push_back({0, {}});
+                    std::size_t visitedCount = 0;
+                    const auto readExportULEB = [&](std::uint64_t& pos, std::uint64_t limit,
+                                                     std::uint64_t& value) -> bool {
+                        value = 0;
+                        unsigned shift = 0;
+                        while (pos < limit) {
+                            const auto byte = bytes[static_cast<std::size_t>(exportOffset + pos++)];
+                            const auto payload = static_cast<std::uint64_t>(byte & 0x7fu);
+                            if (shift >= 64 || (shift == 63 && payload > 1u) ||
+                                (shift < 63 && payload > (std::numeric_limits<std::uint64_t>::max() >> shift)))
+                                return false;
+                            value |= payload << shift;
+                            if ((byte & 0x80u) == 0) return true;
+                            if (shift > 56) return false;
+                            shift += 7;
+                        }
+                        return false;
+                    };
+                    while (!pending.empty()) {
+                        auto current = std::move(pending.back());
+                        pending.pop_back();
+                        const auto nodeOffset = current.first;
+                        if (nodeOffset >= exportSize) {
+                            diag(info, "MACHO_EXPORT_NODE_OFFSET", "Mach-O export trie child points outside the trie", exportOffset);
+                            break;
+                        }
+                        if (visited[static_cast<std::size_t>(nodeOffset)] != 0) {
+                            diag(info, "MACHO_EXPORT_CYCLE", "Mach-O export trie contains a cycle or duplicate node reference", exportOffset + static_cast<std::size_t>(nodeOffset));
+                            continue;
+                        }
+                        visited[static_cast<std::size_t>(nodeOffset)] = 1;
+                        if (++visitedCount > maxExportNodes) {
+                            diag(info, "MACHO_EXPORT_NODE_LIMIT", "Mach-O export trie exceeds the node processing limit", exportOffset);
+                            break;
+                        }
+                        std::uint64_t pos = nodeOffset;
+                        std::uint64_t terminalSize = 0;
+                        if (!readExportULEB(pos, exportSize, terminalSize) ||
+                            terminalSize > exportSize - pos) {
+                            diag(info, "MACHO_EXPORT_TERMINAL_RANGE", "Mach-O export trie terminal payload is truncated or out of range", exportOffset + static_cast<std::size_t>(nodeOffset));
+                            break;
+                        }
+                        const auto terminalEnd = pos + terminalSize;
+                        if (terminalSize != 0) {
+                            std::uint64_t flags = 0, address = 0, other = 0;
+                            std::string importedName;
+                            bool validTerminal = readExportULEB(pos, terminalEnd, flags);
+                            constexpr std::uint64_t EXPORT_SYMBOL_FLAGS_REEXPORT = 0x08u;
+                            constexpr std::uint64_t EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER = 0x10u;
+                            if (validTerminal && (flags & EXPORT_SYMBOL_FLAGS_REEXPORT) != 0) {
+                                validTerminal = readExportULEB(pos, terminalEnd, other);
+                                if (validTerminal) {
+                                    while (pos < terminalEnd && bytes[static_cast<std::size_t>(exportOffset + pos)] != 0)
+                                        importedName.push_back(static_cast<char>(bytes[static_cast<std::size_t>(exportOffset + pos++)]));
+                                    if (pos >= terminalEnd) validTerminal = false;
+                                    else ++pos;
+                                }
+                            } else if (validTerminal) {
+                                validTerminal = readExportULEB(pos, terminalEnd, address);
+                                if (validTerminal && (flags & EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER) != 0)
+                                    validTerminal = readExportULEB(pos, terminalEnd, other);
+                            }
+                            if (!validTerminal || pos != terminalEnd) {
+                                diag(info, "MACHO_EXPORT_TERMINAL", "Mach-O export trie terminal payload has invalid flags or operands", exportOffset + static_cast<std::size_t>(nodeOffset));
+                                break;
+                            }
+                            info.exports.push_back({current.second, flags, address, other,
+                                (flags & EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER) != 0 ? other : 0,
+                                std::move(importedName)});
+                        }
+                        pos = terminalEnd;
+                        if (pos >= exportSize) {
+                            diag(info, "MACHO_EXPORT_CHILD_COUNT", "Mach-O export trie node is missing its child count", exportOffset + static_cast<std::size_t>(nodeOffset));
+                            break;
+                        }
+                        const auto childCount = bytes[static_cast<std::size_t>(exportOffset + pos++)];
+                        for (std::uint32_t child = 0; child < childCount; ++child) {
+                            std::string edge;
+                            while (pos < exportSize && bytes[static_cast<std::size_t>(exportOffset + pos)] != 0)
+                                edge.push_back(static_cast<char>(bytes[static_cast<std::size_t>(exportOffset + pos++)]));
+                            if (pos >= exportSize || edge.empty()) {
+                                diag(info, "MACHO_EXPORT_EDGE", "Mach-O export trie child edge is empty or unterminated", exportOffset + static_cast<std::size_t>(nodeOffset));
+                                break;
+                            }
+                            ++pos;
+                            std::uint64_t childOffset = 0;
+                            if (!readExportULEB(pos, exportSize, childOffset)) {
+                                diag(info, "MACHO_EXPORT_CHILD_OFFSET", "Mach-O export trie child offset is malformed", exportOffset + static_cast<std::size_t>(nodeOffset));
+                                break;
+                            }
+                            pending.push_back({childOffset, current.second + edge});
+                        }
+                        if (!info.diagnostics.valid) break;
+                    }
+                }
+
             if (hasDynamicSymbolTable) {
                 const auto validateSymbolRange = [&](std::uint32_t index, std::uint32_t count, const char* code, const char* description) {
                     const std::uint64_t end = static_cast<std::uint64_t>(index) + count;
