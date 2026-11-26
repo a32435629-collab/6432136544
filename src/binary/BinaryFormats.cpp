@@ -449,9 +449,6 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         }
                         const auto relocationOffset = view.u32le(sectionBase + (info.is64Bit ? 56 : 48)).value_or(0);
                         const auto relocationCount = view.u32le(sectionBase + (info.is64Bit ? 60 : 52)).value_or(0);
-                        const auto sectionSize = info.is64Bit
-                            ? view.u64le(sectionBase + 40).value_or(0)
-                            : view.u32le(sectionBase + 36).value_or(0);
                         if (relocationCount != 0)
                             sectionRelocationTables.push_back({relocationOffset, relocationCount, sectionSize, sectionBase});
                     }
