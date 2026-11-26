@@ -18,9 +18,9 @@ struct MachOInitTermPointer { std::uint64_t address=0; std::uint64_t target=0; b
 struct MachOTwoLevelHint { std::uint8_t subImage=0; std::uint32_t tableOfContentsIndex=0; };
 struct MachOCodeSignatureBlob { std::uint32_t slotType=0; std::uint32_t magic=0; std::uint32_t length=0; std::uint32_t offset=0; };
 struct MachORebaseEntry { std::uint32_t segmentIndex=0; std::uint8_t type=0; std::uint64_t segmentOffset=0; std::uint64_t address=0; std::uint64_t fileOffset=0; };
-struct MachOBindEntry { std::uint32_t segmentIndex=0; std::uint8_t type=0; std::int32_t libraryOrdinal=0; std::uint8_t symbolFlags=0; std::string symbolName; std::int64_t addend=0; std::uint64_t segmentOffset=0; std::uint64_t address=0; std::uint64_t fileOffset=0; };
-struct MachOExportEntry { std::string name; std::uint64_t flags=0; std::uint64_t address=0; std::uint64_t other=0; std::uint64_t resolver=0; std::string importedName; };
 enum class MachODyldStreamKind { Rebase, Bind, WeakBind, LazyBind, Export };
+struct MachOBindEntry { std::uint32_t segmentIndex=0; std::uint8_t type=0; std::int32_t libraryOrdinal=0; std::uint8_t symbolFlags=0; std::string symbolName; std::int64_t addend=0; std::uint64_t segmentOffset=0; std::uint64_t address=0; std::uint64_t fileOffset=0; MachODyldStreamKind streamKind=MachODyldStreamKind::Bind; };
+struct MachOExportEntry { std::string name; std::uint64_t flags=0; std::uint64_t address=0; std::uint64_t other=0; std::uint64_t resolver=0; std::string importedName; };
 struct MachODyldStream { MachODyldStreamKind kind=MachODyldStreamKind::Rebase; std::uint32_t offset=0; std::uint32_t size=0; };
 struct MachOModule {
     std::string name;

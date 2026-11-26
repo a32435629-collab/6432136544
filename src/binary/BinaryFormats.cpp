@@ -771,11 +771,14 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                              static_cast<std::size_t>(rebaseOffset));
                 }
 
-                // Classic dyld bind stream. Weak and lazy bind streams are
-                // deliberately handled by their own passes.
-                const auto bindOffset = dyldStreamFields[2];
-                const auto bindSize = dyldStreamFields[3];
-                if (bindSize != 0 && rangeFits(bindOffset, bindSize, image.size())) {
+                // Classic dyld bind streams share the opcode grammar. Lazy bind
+                // streams contain multiple DONE-terminated records with state reset
+                // between records; weak binds use single-stream termination.
+                const auto parseBindStream = [&](std::uint32_t bindOffset, std::uint32_t bindSize,
+                                                 MachODyldStreamKind streamKind, bool lazyStream,
+                                                 const char* opcodeCode, const char* opcodeMessage,
+                                                 const char* unterminatedCode, const char* unterminatedMessage) {
+                    if (bindSize == 0 || !rangeFits(bindOffset, bindSize, image.size())) return;
                     std::uint64_t streamCursor = bindOffset;
                     const std::uint64_t streamEnd = static_cast<std::uint64_t>(bindOffset) + bindSize;
                     std::uint32_t segmentIndex = 0;
@@ -848,7 +851,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         if (!rangeFits(fileOffset, width, image.size())) return false;
                         info.binds.push_back({segmentIndex, bindType, libraryOrdinal, symbolFlags,
                                               symbolName, addend, segmentOffset,
-                                              segmentInfo.address + segmentOffset, fileOffset});
+                                              segmentInfo.address + segmentOffset, fileOffset, streamKind});
                         ++emitted;
                         return addOffset(width);
                     };
@@ -861,7 +864,20 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         bool validOpcode = true;
                         switch (opcode) {
                         case 0x00u: // BIND_OPCODE_DONE
-                            terminated = true;
+                            if (lazyStream) {
+                                segmentIndex = 0;
+                                segmentOffset = 0;
+                                bindType = 1;
+                                symbolFlags = 0;
+                                libraryOrdinal = 0;
+                                addend = 0;
+                                symbolName.clear();
+                                hasSegment = false;
+                                hasSymbol = false;
+                                if (streamCursor == streamEnd) terminated = true;
+                            } else {
+                                terminated = true;
+                            }
                             break;
                         case 0x10u: // BIND_OPCODE_SET_DYLIB_ORDINAL_IMM
                             libraryOrdinal = immediate;
@@ -941,19 +957,32 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             break;
                         }
                         if (!validOpcode) {
-                            diag(info, "MACHO_BIND_OPCODE",
-                                 "Mach-O dyld bind stream contains an invalid opcode, operand, symbol, segment, or bind location",
+                            diag(info, opcodeCode,
+                                 opcodeMessage,
                                  static_cast<std::size_t>(streamCursor - 1));
                             break;
                         }
                     }
                     if (!terminated && streamCursor == streamEnd)
-                        diag(info, "MACHO_BIND_UNTERMINATED",
-                             "Mach-O dyld bind stream does not end with BIND_OPCODE_DONE",
+                        diag(info, unterminatedCode,
+                             unterminatedMessage,
                              static_cast<std::size_t>(bindOffset));
-                }
-            }
-
+                };
+                parseBindStream(dyldStreamFields[2], dyldStreamFields[3], MachODyldStreamKind::Bind, false,
+                                "MACHO_BIND_OPCODE",
+                                "Mach-O dyld bind stream contains an invalid opcode, operand, symbol, segment, or bind location",
+                                "MACHO_BIND_UNTERMINATED",
+                                "Mach-O dyld bind stream does not end with BIND_OPCODE_DONE");
+                parseBindStream(dyldStreamFields[4], dyldStreamFields[5], MachODyldStreamKind::WeakBind, false,
+                                "MACHO_WEAK_BIND_OPCODE",
+                                "Mach-O dyld weak-bind stream contains an invalid opcode, operand, symbol, segment, or bind location",
+                                "MACHO_WEAK_BIND_UNTERMINATED",
+                                "Mach-O dyld weak-bind stream does not end with BIND_OPCODE_DONE");
+                parseBindStream(dyldStreamFields[6], dyldStreamFields[7], MachODyldStreamKind::LazyBind, true,
+                                "MACHO_LAZY_BIND_OPCODE",
+                                "Mach-O dyld lazy-bind stream contains an invalid opcode, operand, symbol, segment, or bind location",
+                                "MACHO_LAZY_BIND_UNTERMINATED",
+                                "Mach-O dyld lazy-bind stream does not end with BIND_OPCODE_DONE");
 
                 // Export trie: bounded graph traversal with cycle and malformed-node checks.
                 const auto exportOffset = dyldStreamFields[8];

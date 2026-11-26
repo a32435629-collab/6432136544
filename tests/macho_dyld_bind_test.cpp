@@ -34,6 +34,17 @@ std::vector<std::uint8_t> makeImage(const std::vector<std::uint8_t>& stream, boo
     for(std::size_t i=0;i<stream.size();++i) b[0x1c0+i]=stream[i];
     return b;
 }
+
+std::vector<std::uint8_t> makeImageForStream(const std::vector<std::uint8_t>& stream, std::size_t streamIndex) {
+    auto b = makeImage({}, false);
+    const std::size_t dyld = 32 + 152 + 24;
+    const std::size_t offsetField = dyld + 8 + streamIndex * 8;
+    put32(b, offsetField, 0x1c0);
+    put32(b, offsetField + 4, static_cast<std::uint32_t>(stream.size()));
+    b.resize(0x1c0 + stream.size());
+    for (std::size_t i = 0; i < stream.size(); ++i) b[0x1c0 + i] = stream[i];
+    return b;
+}
 bool hasDiagnostic(const lulz::binary::FormatInfo& info, const char* code) {
     for(const auto& d:info.diagnostics.diagnostics) if(d.code==code) return true;
     return false;
@@ -110,6 +121,32 @@ int main() {
     assert(!badExport.valid);
     assert(hasDiagnostic(badExport, "MACHO_EXPORT_CHILD_OFFSET") ||
            hasDiagnostic(badExport, "MACHO_EXPORT_NODE_OFFSET"));
+
+
+    const std::vector<std::uint8_t> weakBindStream = {
+        0x11, 0x40, '_','w','e','a','k',0, 0x70, 0x80, 0x01, 0x90, 0x00
+    };
+    auto weakBound = analyzeFormat(BinaryImage::fromBytes(makeImageForStream(weakBindStream, 2)));
+    assert(weakBound.valid && weakBound.binds.size() == 1);
+    assert(weakBound.binds[0].symbolName == "_weak");
+    assert(weakBound.binds[0].streamKind == MachODyldStreamKind::WeakBind);
+    auto badWeak = analyzeFormat(BinaryImage::fromBytes(makeImageForStream({0x40, '_','x',0, 0xe0, 0x00}, 2)));
+    assert(!badWeak.valid && hasDiagnostic(badWeak, "MACHO_WEAK_BIND_OPCODE"));
+
+    const std::vector<std::uint8_t> lazyBindStream = {
+        0x11, 0x40, '_','f','i','r','s','t',0, 0x70, 0x80, 0x01, 0x90, 0x00,
+        0x11, 0x40, '_','s','e','c','o','n','d',0, 0x70, 0x90, 0x01, 0x90, 0x00
+    };
+    auto lazyBound = analyzeFormat(BinaryImage::fromBytes(makeImageForStream(lazyBindStream, 3)));
+    assert(lazyBound.valid && lazyBound.binds.size() == 2);
+    assert(lazyBound.binds[0].symbolName == "_first");
+    assert(lazyBound.binds[1].symbolName == "_second");
+    assert(lazyBound.binds[0].streamKind == MachODyldStreamKind::LazyBind);
+    assert(lazyBound.binds[1].segmentOffset == 0x90);
+    auto badLazy = analyzeFormat(BinaryImage::fromBytes(makeImageForStream({
+        0x11, 0x40, '_','x',0, 0x70, 0x80, 0x01, 0x90
+    }, 3)));
+    assert(!badLazy.valid && hasDiagnostic(badLazy, "MACHO_LAZY_BIND_UNTERMINATED"));
 
     return 0;
 }
