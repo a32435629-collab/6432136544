@@ -97,7 +97,7 @@ int main() {
     bool foundResource = false;
     for (const auto& resource : result.resources) {
         if (!resource.directory && resource.path == "#10/#1") {
-            foundResource = resource.dataRva == 0x1100 &&
+            foundResource = resource.dataRva == 0x10f0 &&
                 resource.size == 4 && resource.codePage == 1200;
         }
     }
