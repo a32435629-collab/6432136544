@@ -5,6 +5,9 @@
 
 #include <cassert>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -72,6 +75,46 @@ int main() {
     BinaryView signedView(signedImage);
     assert(signedView.i64le(0).value() == -1);
     assert(signedView.i64be(0).value() == -1);
+
+
+    // File loader: bounded chunk reads, source tracking, empty files and limits.
+    const auto loaderPath = std::filesystem::temp_directory_path() / "lulz_binary_loader_test.bin";
+    {
+        std::ofstream out(loaderPath, std::ios::binary | std::ios::trunc);
+        const char contents[] = {char(0x41), char(0x00), char(0x42), char(0x43), char(0x44)};
+        out.write(contents, sizeof(contents));
+        assert(out.good());
+    }
+    BinaryLoadOptions loaderOptions;
+    loaderOptions.maxBytes = 16;
+    loaderOptions.chunkSize = 2;
+    const auto loaded = BinaryImage::load(loaderPath, loaderOptions);
+    assert(loaded.size() == 5 && loaded.source() == loaderPath.string());
+    assert(loaded.bytes()[0] == 0x41 && loaded.bytes()[1] == 0x00 && loaded.bytes()[4] == 0x44);
+
+    bool sizeLimitRejected = false;
+    try {
+        auto limited = loaderOptions;
+        limited.maxBytes = 4;
+        (void)BinaryImage::load(loaderPath, limited);
+    } catch (const std::runtime_error&) { sizeLimitRejected = true; }
+    assert(sizeLimitRejected);
+
+    bool zeroChunkRejected = false;
+    try {
+        auto invalid = loaderOptions;
+        invalid.chunkSize = 0;
+        (void)BinaryImage::load(loaderPath, invalid);
+    } catch (const std::invalid_argument&) { zeroChunkRejected = true; }
+    assert(zeroChunkRejected);
+
+    {
+        std::ofstream out(loaderPath, std::ios::binary | std::ios::trunc);
+        assert(out.good());
+    }
+    const auto emptyLoaded = BinaryImage::load(loaderPath, loaderOptions);
+    assert(emptyLoaded.size() == 0);
+    std::filesystem::remove(loaderPath);
 
     assert(validateImage(img).valid);
     assert(!validateImage(BinaryImage::fromBytes({})).valid);
