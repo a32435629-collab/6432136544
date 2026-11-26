@@ -62,6 +62,26 @@ std::vector<std::uint8_t> makeMachO64() {
     put64(b, main + 16, 0x4000); // stacksize
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithSymtab() {
+    auto b = makeMachO64();
+    put32(b, 16, 3); // segment + LC_MAIN + LC_SYMTAB
+    put32(b, 20, 200);
+    const std::size_t symtab = 32 + 152 + 24;
+    put32(b, symtab, 0x2); // LC_SYMTAB
+    put32(b, symtab + 4, 24);
+    put32(b, symtab + 8, 0x180); // symoff
+    put32(b, symtab + 12, 1); // nsyms
+    put32(b, symtab + 16, 0x190); // stroff
+    put32(b, symtab + 20, 8); // strsize
+    put32(b, 0x180, 1); // n_strx
+    b[0x184] = 0x0f; // N_SECT | N_EXT
+    b[0x185] = 1; // __TEXT section
+    put16(b, 0x186, 0);
+    put64(b, 0x188, 0x100000080ull);
+    b[0x190] = 0;
+    b[0x191] = 'f'; b[0x192] = 'o'; b[0x193] = 'o'; b[0x194] = 0;
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64UnixThread() {
     auto b = makeMachO64();
     put32(b, 16, 2); // segment + LC_UNIXTHREAD
@@ -263,6 +283,47 @@ int main() {
     put64(duplicateMachOMainBytes, duplicateMain + 8, 0x80);
     auto duplicateMachOMain = analyzeFormat(BinaryImage::fromBytes(std::move(duplicateMachOMainBytes)));
     assert(!duplicateMachOMain.valid);
+
+    auto machoSymbols = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithSymtab()));
+    assert(machoSymbols.format == Format::MachO && machoSymbols.valid);
+    assert(machoSymbols.symbols.size() == 1);
+    assert(machoSymbols.symbols[0].name == "foo");
+    assert(machoSymbols.symbols[0].type == 0x0f && machoSymbols.symbols[0].section == 1);
+    assert(machoSymbols.symbols[0].description == 0);
+    assert(machoSymbols.symbols[0].value == 0x100000080ull);
+
+    auto badMachOSymbolRangeBytes = makeMachO64WithSymtab();
+    put32(badMachOSymbolRangeBytes, 32 + 152 + 24 + 8, 0x1f8);
+    auto badMachOSymbolRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOSymbolRangeBytes)));
+    assert(!badMachOSymbolRange.valid);
+
+    auto badMachOStringRangeBytes = makeMachO64WithSymtab();
+    put32(badMachOStringRangeBytes, 32 + 152 + 24 + 16, 0x1fc);
+    auto badMachOStringRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOStringRangeBytes)));
+    assert(!badMachOStringRange.valid);
+
+    auto badMachOStringIndexBytes = makeMachO64WithSymtab();
+    put32(badMachOStringIndexBytes, 0x180, 8);
+    auto badMachOStringIndex = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOStringIndexBytes)));
+    assert(!badMachOStringIndex.valid);
+
+    auto unterminatedMachONameBytes = makeMachO64WithSymtab();
+    for (std::size_t i = 0x191; i < 0x198; ++i) unterminatedMachONameBytes[i] = 'x';
+    auto unterminatedMachOName = analyzeFormat(BinaryImage::fromBytes(std::move(unterminatedMachONameBytes)));
+    assert(!unterminatedMachOName.valid);
+
+    auto duplicateMachOSymtabBytes = makeMachO64WithSymtab();
+    put32(duplicateMachOSymtabBytes, 16, 4);
+    put32(duplicateMachOSymtabBytes, 20, 224);
+    const std::size_t duplicateSymtab = 32 + 152 + 24 + 24;
+    put32(duplicateMachOSymtabBytes, duplicateSymtab, 0x2);
+    put32(duplicateMachOSymtabBytes, duplicateSymtab + 4, 24);
+    put32(duplicateMachOSymtabBytes, duplicateSymtab + 8, 0x180);
+    put32(duplicateMachOSymtabBytes, duplicateSymtab + 12, 1);
+    put32(duplicateMachOSymtabBytes, duplicateSymtab + 16, 0x190);
+    put32(duplicateMachOSymtabBytes, duplicateSymtab + 20, 8);
+    auto duplicateMachOSymtab = analyzeFormat(BinaryImage::fromBytes(std::move(duplicateMachOSymtabBytes)));
+    assert(!duplicateMachOSymtab.valid);
 
     auto machoUnixThread = analyzeFormat(BinaryImage::fromBytes(makeMachO64UnixThread()));
     assert(machoUnixThread.format == Format::MachO && machoUnixThread.valid);

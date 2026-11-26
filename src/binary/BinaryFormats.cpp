@@ -335,6 +335,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             const std::uint64_t commandEnd = cursor + commandBytes;
             bool hasMainCommand = false;
             bool hasUnixThreadCommand = false;
+            bool hasSymbolTableCommand = false;
+            std::uint32_t symbolOffset = 0, symbolCount = 0, stringOffset = 0, stringSize = 0;
             std::uint64_t unixThreadEntryPoint = 0;
             for (std::uint32_t i = 0; i < commandCount; ++i) {
                 if (!rangeFits(cursor, 8, static_cast<std::size_t>(commandEnd))) {
@@ -430,6 +432,21 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         if (!foundX64State)
                             diag(info, "MACHO_UNIXTHREAD_STATE_MISSING", "LC_UNIXTHREAD has no x86_THREAD_STATE64 record", base);
                     }
+                } else if (command == 0x2u) { // LC_SYMTAB
+                    const auto base = static_cast<std::size_t>(cursor);
+                    if (size < 24) {
+                        diag(info, "MACHO_SYMTAB_TRUNCATED", "LC_SYMTAB command is smaller than its required fields", base);
+                        break;
+                    }
+                    if (hasSymbolTableCommand) {
+                        diag(info, "MACHO_SYMTAB_DUPLICATE", "Mach-O image contains more than one LC_SYMTAB command", base);
+                        break;
+                    }
+                    hasSymbolTableCommand = true;
+                    symbolOffset = view.u32le(base + 8).value_or(0);
+                    symbolCount = view.u32le(base + 12).value_or(0);
+                    stringOffset = view.u32le(base + 16).value_or(0);
+                    stringSize = view.u32le(base + 20).value_or(0);
                 } else if (command == 0x80000028u) { // LC_MAIN
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 24) {
@@ -451,6 +468,55 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             }
             if (cursor != commandEnd)
                 diag(info, "MACHO_COMMAND_BYTES", "Mach-O command sizes do not match sizeofcmds", static_cast<std::size_t>(cursor));
+
+            if (hasSymbolTableCommand) {
+                const std::uint64_t symbolEntrySize = info.is64Bit ? 16u : 12u;
+                const std::uint64_t symbolBytes = static_cast<std::uint64_t>(symbolCount) * symbolEntrySize;
+                const bool symbolRangeValid = rangeFits(symbolOffset, symbolBytes, image.size());
+                const bool stringRangeValid = rangeFits(stringOffset, stringSize, image.size());
+                if (!symbolRangeValid)
+                    diag(info, "MACHO_SYMTAB_RANGE", "Mach-O symbol table extends beyond the file", symbolOffset);
+                if (!stringRangeValid)
+                    diag(info, "MACHO_STRTAB_RANGE", "Mach-O string table extends beyond the file", stringOffset);
+
+                if (symbolRangeValid && stringRangeValid) {
+                    for (std::uint32_t i = 0; i < symbolCount; ++i) {
+                        const auto entry = static_cast<std::size_t>(
+                            static_cast<std::uint64_t>(symbolOffset) + static_cast<std::uint64_t>(i) * symbolEntrySize);
+                        const auto stringIndex = view.u32le(entry).value_or(0);
+                        const auto symbolType = view.u8(entry + 4).value_or(0);
+                        const auto sectionIndex = view.u8(entry + 5).value_or(0);
+                        const auto description = view.u16le(entry + 6).value_or(0);
+                        const std::uint64_t value = info.is64Bit
+                            ? view.u64le(entry + 8).value_or(0)
+                            : view.u32le(entry + 8).value_or(0);
+
+                        std::string symbolName;
+                        if (stringIndex != 0) {
+                            if (stringIndex >= stringSize) {
+                                diag(info, "MACHO_SYMBOL_STRING_INDEX", "Mach-O symbol string index is outside the string table", entry);
+                                continue;
+                            }
+                            const auto nameStart = static_cast<std::uint64_t>(stringOffset) + stringIndex;
+                            const auto nameLimit = static_cast<std::uint64_t>(stringOffset) + stringSize;
+                            bool terminated = false;
+                            for (auto pos = nameStart; pos < nameLimit; ++pos) {
+                                const auto ch = bytes[static_cast<std::size_t>(pos)];
+                                if (ch == 0) {
+                                    terminated = true;
+                                    break;
+                                }
+                                symbolName.push_back(static_cast<char>(ch));
+                            }
+                            if (!terminated) {
+                                diag(info, "MACHO_SYMBOL_NAME_UNTERMINATED", "Mach-O symbol name is not NUL-terminated within the string table", entry);
+                                continue;
+                            }
+                        }
+                        info.symbols.push_back({std::move(symbolName), symbolType, sectionIndex, description, value});
+                    }
+                }
+            }
 
             if (hasMainCommand && hasUnixThreadCommand)
                 diag(info, "MACHO_ENTRYPOINT_CONFLICT", "Mach-O image contains both LC_MAIN and LC_UNIXTHREAD entry-point commands", 0);
