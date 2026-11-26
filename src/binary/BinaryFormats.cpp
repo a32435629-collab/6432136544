@@ -349,6 +349,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             bool hasDynamicSymbolTable = false;
             bool hasTwoLevelHintsCommand = false;
             std::uint32_t twoLevelHintsOffset = 0, twoLevelHintsCount = 0;
+            bool hasCodeSignatureCommand = false;
+            std::uint32_t codeSignatureOffset = 0, codeSignatureSize = 0;
             struct SectionRelocationTable { std::uint32_t offset; std::uint32_t count; std::uint64_t sectionSize; std::size_t diagnosticOffset; };
             std::vector<SectionRelocationTable> sectionRelocationTables;
             std::uint64_t unixThreadEntryPoint = 0;
@@ -558,6 +560,21 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     hasTwoLevelHintsCommand = true;
                     twoLevelHintsOffset = view.u32le(base + 8).value_or(0);
                     twoLevelHintsCount = view.u32le(base + 12).value_or(0);
+                } else if (command == 0x1du) { // LC_CODE_SIGNATURE
+                    const auto base = static_cast<std::size_t>(cursor);
+                    if (size < 16) {
+                        diag(info, "MACHO_CODE_SIGNATURE_TRUNCATED",
+                             "LC_CODE_SIGNATURE command is smaller than its required fields", base);
+                        break;
+                    }
+                    if (hasCodeSignatureCommand) {
+                        diag(info, "MACHO_CODE_SIGNATURE_DUPLICATE",
+                             "Mach-O image contains more than one LC_CODE_SIGNATURE command", base);
+                        break;
+                    }
+                    hasCodeSignatureCommand = true;
+                    codeSignatureOffset = view.u32le(base + 8).value_or(0);
+                    codeSignatureSize = view.u32le(base + 12).value_or(0);
                 } else if (command == 0x80000028u) { // LC_MAIN
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 24) {
@@ -667,6 +684,61 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             continue;
                         }
                         info.twoLevelHints.push_back({subImage, tocIndex});
+                    }
+                }
+            }
+
+            if (hasCodeSignatureCommand) {
+                info.codeSignatureOffset = codeSignatureOffset;
+                info.codeSignatureSize = codeSignatureSize;
+                if (codeSignatureOffset == 0 || codeSignatureSize < 12 ||
+                    !rangeFits(codeSignatureOffset, codeSignatureSize, image.size())) {
+                    diag(info, "MACHO_CODE_SIGNATURE_RANGE",
+                         "Mach-O code signature range is empty, too small, or outside the file",
+                         codeSignatureOffset);
+                } else {
+                    constexpr std::uint32_t CSMAGIC_EMBEDDED_SIGNATURE = 0xfade0cc0u;
+                    const auto signatureMagic = view.u32be(codeSignatureOffset).value_or(0);
+                    const auto signatureLength = view.u32be(static_cast<std::size_t>(codeSignatureOffset) + 4).value_or(0);
+                    const auto blobCount = view.u32be(static_cast<std::size_t>(codeSignatureOffset) + 8).value_or(0);
+                    info.codeSignatureMagic = signatureMagic;
+                    if (signatureMagic != CSMAGIC_EMBEDDED_SIGNATURE) {
+                        diag(info, "MACHO_CODE_SIGNATURE_MAGIC",
+                             "Mach-O LC_CODE_SIGNATURE does not reference an embedded SuperBlob",
+                             codeSignatureOffset);
+                    } else if (signatureLength < 12 || signatureLength > codeSignatureSize ||
+                               static_cast<std::uint64_t>(blobCount) >
+                                   (static_cast<std::uint64_t>(signatureLength) - 12u) / 8u) {
+                        diag(info, "MACHO_CODE_SIGNATURE_SUPERBLOB",
+                             "Mach-O code-signature SuperBlob length or index count is invalid",
+                             codeSignatureOffset);
+                    } else {
+                        const std::uint64_t indexEnd = 12u + static_cast<std::uint64_t>(blobCount) * 8u;
+                        info.codeSignatureBlobs.reserve(blobCount);
+                        for (std::uint32_t i = 0; i < blobCount; ++i) {
+                            const auto indexEntry = static_cast<std::size_t>(
+                                static_cast<std::uint64_t>(codeSignatureOffset) + 12u +
+                                static_cast<std::uint64_t>(i) * 8u);
+                            const auto slotType = view.u32be(indexEntry).value_or(0);
+                            const auto relativeOffset = view.u32be(indexEntry + 4).value_or(0);
+                            if (relativeOffset < indexEnd ||
+                                static_cast<std::uint64_t>(relativeOffset) + 8u > signatureLength) {
+                                diag(info, "MACHO_CODE_SIGNATURE_BLOB_OFFSET",
+                                     "Mach-O code-signature blob offset is outside the SuperBlob payload",
+                                     indexEntry + 4);
+                                continue;
+                            }
+                            const auto blobOffset = static_cast<std::uint64_t>(codeSignatureOffset) + relativeOffset;
+                            const auto blobMagic = view.u32be(static_cast<std::size_t>(blobOffset)).value_or(0);
+                            const auto blobLength = view.u32be(static_cast<std::size_t>(blobOffset) + 4).value_or(0);
+                            if (blobLength < 8 || static_cast<std::uint64_t>(relativeOffset) + blobLength > signatureLength) {
+                                diag(info, "MACHO_CODE_SIGNATURE_BLOB_RANGE",
+                                     "Mach-O code-signature blob extends beyond the SuperBlob",
+                                     static_cast<std::size_t>(blobOffset));
+                                continue;
+                            }
+                            info.codeSignatureBlobs.push_back({slotType, blobMagic, blobLength, relativeOffset});
+                        }
                     }
                 }
             }

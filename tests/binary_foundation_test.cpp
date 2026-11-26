@@ -149,6 +149,24 @@ std::vector<std::uint8_t> makeMachO64WithTwoLevelHints() {
     put32(b, 0x1b0, 0); // sub-image 0, TOC index 0
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithCodeSignature() {
+    auto b = makeMachO64();
+    put32(b, 16, 3);
+    put32(b, 20, 192);
+    const std::size_t signatureCommand = 32 + 152 + 24;
+    put32(b, signatureCommand, 0x1d);
+    put32(b, signatureCommand + 4, 16);
+    put32(b, signatureCommand + 8, 0x1c0);
+    put32(b, signatureCommand + 12, 36);
+    put32(b, 0x1c0, 0xfade0cc0u);
+    put32(b, 0x1c4, 36);
+    put32(b, 0x1c8, 1);
+    put32(b, 0x1cc, 0);
+    put32(b, 0x1d0, 20);
+    put32(b, 0x1d4, 0xfade0c02u);
+    put32(b, 0x1d8, 16);
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64WithInitTermPointers() {
     auto b = makeMachO64();
     const std::size_t section = 32 + 72;
@@ -588,6 +606,43 @@ int main() {
     for (const auto& diagnostic : badMachOTwoLevelToc.diagnostics.diagnostics)
         if (diagnostic.code == "MACHO_TWOLEVEL_HINTS_TOC_INDEX") foundTwoLevelToc = true;
     assert(foundTwoLevelToc);
+
+    auto machoCodeSignature = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithCodeSignature()));
+    assert(machoCodeSignature.format == Format::MachO && machoCodeSignature.valid);
+    assert(machoCodeSignature.codeSignatureOffset == 0x1c0);
+    assert(machoCodeSignature.codeSignatureSize == 36);
+    assert(machoCodeSignature.codeSignatureMagic == 0xfade0cc0u);
+    assert(machoCodeSignature.codeSignatureBlobs.size() == 1);
+    assert(machoCodeSignature.codeSignatureBlobs[0].slotType == 0);
+    assert(machoCodeSignature.codeSignatureBlobs[0].magic == 0xfade0c02u);
+    assert(machoCodeSignature.codeSignatureBlobs[0].length == 16);
+
+    auto badMachOCodeSignatureRangeBytes = makeMachO64WithCodeSignature();
+    put32(badMachOCodeSignatureRangeBytes, 32 + 152 + 24 + 8, 0x1f8);
+    auto badMachOCodeSignatureRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOCodeSignatureRangeBytes)));
+    assert(!badMachOCodeSignatureRange.valid);
+    bool foundCodeSignatureRange = false;
+    for (const auto& diagnostic : badMachOCodeSignatureRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_CODE_SIGNATURE_RANGE") foundCodeSignatureRange = true;
+    assert(foundCodeSignatureRange);
+
+    auto badMachOCodeSignatureBlobOffsetBytes = makeMachO64WithCodeSignature();
+    put32(badMachOCodeSignatureBlobOffsetBytes, 0x1d0, 0xfffffff0u);
+    auto badMachOCodeSignatureBlobOffset = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOCodeSignatureBlobOffsetBytes)));
+    assert(!badMachOCodeSignatureBlobOffset.valid);
+    bool foundCodeSignatureBlobOffset = false;
+    for (const auto& diagnostic : badMachOCodeSignatureBlobOffset.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_CODE_SIGNATURE_BLOB_OFFSET") foundCodeSignatureBlobOffset = true;
+    assert(foundCodeSignatureBlobOffset);
+
+    auto badMachOCodeSignatureBlobRangeBytes = makeMachO64WithCodeSignature();
+    put32(badMachOCodeSignatureBlobRangeBytes, 0x1d8, 0x40);
+    auto badMachOCodeSignatureBlobRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOCodeSignatureBlobRangeBytes)));
+    assert(!badMachOCodeSignatureBlobRange.valid);
+    bool foundCodeSignatureBlobRange = false;
+    for (const auto& diagnostic : badMachOCodeSignatureBlobRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_CODE_SIGNATURE_BLOB_RANGE") foundCodeSignatureBlobRange = true;
+    assert(foundCodeSignatureBlobRange);
 
     auto machoInitTerm = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithInitTermPointers()));
     assert(machoInitTerm.format == Format::MachO && machoInitTerm.valid);
