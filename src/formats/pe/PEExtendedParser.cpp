@@ -1,4 +1,5 @@
 #include "lulz/formats/pe/PEExtendedParser.hpp"
+#include "lulz/formats/pe/PEWindowsMetadata.hpp"
 #include "lulz/binary/BinaryReader.hpp"
 
 #include <algorithm>
@@ -489,6 +490,12 @@ Result<PEExtendedInfo> parsePEExtended(std::span<const std::uint8_t> bytes) {
     parseRelocations(bytes,out);
     parseDebug(bytes,out);
     parseTls(bytes,out);
+    auto windows = parsePEWindowsMetadata(bytes, out);
+    if (windows) {
+        out.windows = std::move(windows.value());
+        out.warnings.insert(out.warnings.end(),
+            out.windows.warnings.begin(), out.windows.warnings.end());
+    }
     return Result<PEExtendedInfo>::success(std::move(out));
 }
 

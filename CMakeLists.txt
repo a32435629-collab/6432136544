@@ -47,6 +47,7 @@ add_library(lulz_core
     src/formats/common/FormatDetector.cpp
     src/formats/pe/PEParser.cpp
     src/formats/pe/PEExtendedParser.cpp
+    src/formats/pe/PEWindowsMetadata.cpp
     src/formats/elf/ELFParser.cpp
     src/formats/dotnet/DotNetParser.cpp
     src/formats/macho/MachOParser.cpp
@@ -159,6 +160,9 @@ if(DLL_LULZ_BUILD_TESTS)
     add_executable(lulz_binary_foundation_tests tests/binary_foundation_test.cpp)
     target_link_libraries(lulz_binary_foundation_tests PRIVATE lulz_core)
 
+    add_executable(lulz_pe_windows_metadata_tests tests/pe_windows_metadata_test.cpp)
+    target_link_libraries(lulz_pe_windows_metadata_tests PRIVATE lulz_core)
+
     if(MSVC)
         foreach(test_target
             lulz_tests
@@ -166,6 +170,7 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_builder_tests
             lulz_subsystem_tests
             lulz_ai_tests
+            lulz_pe_windows_metadata_tests
         )
             target_compile_options(${test_target} PRIVATE /UNDEBUG)
         endforeach()
@@ -176,6 +181,7 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_builder_tests
             lulz_subsystem_tests
             lulz_ai_tests
+            lulz_pe_windows_metadata_tests
         )
             target_compile_options(${test_target} PRIVATE -UNDEBUG)
         endforeach()
@@ -196,6 +202,7 @@ if(DLL_LULZ_BUILD_TESTS)
     add_test(NAME lulz_subsystem_tests COMMAND lulz_subsystem_tests)
     add_test(NAME lulz_ai_tests COMMAND lulz_ai_tests)
     add_test(NAME lulz_binary_foundation_tests COMMAND lulz_binary_foundation_tests)
+    add_test(NAME lulz_pe_windows_metadata_tests COMMAND lulz_pe_windows_metadata_tests)
 endif()
 
 # Optional benchmarks
