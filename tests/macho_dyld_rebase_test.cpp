@@ -52,7 +52,7 @@ int main() {
     auto noDone=analyzeFormat(BinaryImage::fromBytes(makeImage({0x11,0x20,0x80,0x51})));
     assert(!noDone.valid && hasDiagnostic(noDone,"MACHO_REBASE_UNTERMINATED"));
 
-    auto badLocation=analyzeFormat(BinaryImage::fromBytes(makeImage({0x11,0x20,0xf8,0x51,0x00})));
+    auto badLocation=analyzeFormat(BinaryImage::fromBytes(makeImage({0x11,0x20,0xf9,0x51,0x00})));
     assert(!badLocation.valid && hasDiagnostic(badLocation,"MACHO_REBASE_OPCODE"));
     return 0;
 }

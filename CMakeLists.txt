@@ -176,7 +176,6 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_subsystem_tests
             lulz_ai_tests
             lulz_pe_windows_metadata_tests
-            lulz_macho_dyld_rebase_tests
             lulz_instruction_ir_tests
             lulz_macho_dyld_rebase_tests
         )
@@ -190,6 +189,7 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_subsystem_tests
             lulz_ai_tests
             lulz_pe_windows_metadata_tests
+            lulz_macho_dyld_rebase_tests
         )
             target_compile_options(${test_target} PRIVATE -UNDEBUG)
         endforeach()

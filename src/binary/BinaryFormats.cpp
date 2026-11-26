@@ -356,7 +356,6 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t codeSignatureOffset = 0, codeSignatureSize = 0;
             struct SectionRelocationTable { std::uint32_t offset; std::uint32_t count; std::uint64_t sectionSize; std::size_t diagnosticOffset; };
             std::vector<SectionRelocationTable> sectionRelocationTables;
-            std::vector<Section> machoSegments;
             std::uint64_t unixThreadEntryPoint = 0;
             for (std::uint32_t i = 0; i < commandCount; ++i) {
                 if (!rangeFits(cursor, 8, static_cast<std::size_t>(commandEnd))) {
@@ -407,7 +406,6 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         (protection & ~maxProtection) != 0)
                         diag(info, "MACHO_SEGMENT_PROTECTION", "Mach-O segment protections are invalid or exceed maximum protections", base);
                     info.sections.push_back({name8(image, base + 8), fileOffset, fileSize, vmAddress, vmSize, (protection & 4u) != 0});
-                    machoSegments.push_back({name8(image, base + 8), fileOffset, fileSize, vmAddress, vmSize, (protection & 4u) != 0});
                     for (std::uint32_t sectionIndex = 0; sectionIndex < sectionCount; ++sectionIndex) {
                         const auto sectionBase = base + static_cast<std::size_t>(minimumSegmentSize +
                             static_cast<std::uint64_t>(sectionIndex) * sectionEntrySize);
@@ -644,130 +642,6 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         continue;
                     }
                     info.dyldStreams.push_back({kinds[stream], offset, length});
-                }
-                const auto rebaseOffset = dyldStreamFields[0];
-                const auto rebaseSize = dyldStreamFields[1];
-                if (rebaseSize != 0 && rangeFits(rebaseOffset, rebaseSize, image.size())) {
-                    std::uint64_t streamCursor = rebaseOffset;
-                    const std::uint64_t streamEnd = static_cast<std::uint64_t>(rebaseOffset) + rebaseSize;
-                    std::uint8_t rebaseType = 0;
-                    std::uint32_t segmentIndex = 0;
-                    std::uint64_t segmentOffset = 0;
-                    bool hasSegment = false;
-                    bool terminated = false;
-                    std::size_t emitted = 0;
-                    constexpr std::size_t maxRebaseEntries = 1000000;
-
-                    const auto readULEB = [&](std::uint64_t& cursor, std::uint64_t& value) -> bool {
-                        value = 0;
-                        unsigned shift = 0;
-                        while (cursor < streamEnd) {
-                            const auto byte = bytes[static_cast<std::size_t>(cursor++)];
-                            const auto payload = static_cast<std::uint64_t>(byte & 0x7fu);
-                            if (shift >= 64 || (shift == 63 && payload > 1u) ||
-                                (shift < 63 && payload > (std::numeric_limits<std::uint64_t>::max() >> shift)))
-                                return false;
-                            value |= payload << shift;
-                            if ((byte & 0x80u) == 0) return true;
-                            if (shift > 56) return false;
-                            shift += 7;
-                        }
-                        return false;
-                    };
-                    const auto addOffset = [&](std::uint64_t amount) -> bool {
-                        if (amount > std::numeric_limits<std::uint64_t>::max() - segmentOffset) return false;
-                        segmentOffset += amount;
-                        return true;
-                    };
-                    const auto emitRebase = [&]() -> bool {
-                        if (!hasSegment || rebaseType < 1 || rebaseType > 3 ||
-                            segmentIndex >= machoSegments.size() || emitted >= maxRebaseEntries)
-                            return false;
-                        const auto& segmentInfo = machoSegments[segmentIndex];
-                        const std::uint64_t pointerSize = info.is64Bit ? 8u : 4u;
-                        const std::uint64_t width = rebaseType == 1 ? pointerSize : 4u;
-                        if (segmentOffset > segmentInfo.virtualSize ||
-                            width > segmentInfo.virtualSize - segmentOffset ||
-                            segmentOffset > segmentInfo.size || width > segmentInfo.size - segmentOffset ||
-                            segmentInfo.address > std::numeric_limits<std::uint64_t>::max() - segmentOffset ||
-                            segmentInfo.offset > std::numeric_limits<std::uint64_t>::max() - segmentOffset)
-                            return false;
-                        const auto fileOffset = segmentInfo.offset + segmentOffset;
-                        if (!rangeFits(fileOffset, width, image.size())) return false;
-                        info.rebases.push_back({segmentIndex, rebaseType, segmentOffset,
-                                                segmentInfo.address + segmentOffset, fileOffset});
-                        ++emitted;
-                        return addOffset(width);
-                    };
-
-                    while (streamCursor < streamEnd && !terminated) {
-                        const auto opcodeByte = bytes[static_cast<std::size_t>(streamCursor++)];
-                        const auto opcode = static_cast<std::uint8_t>(opcodeByte & 0xf0u);
-                        const auto immediate = static_cast<std::uint8_t>(opcodeByte & 0x0fu);
-                        std::uint64_t value = 0;
-                        bool validOpcode = true;
-                        switch (opcode) {
-                        case 0x00u: // REBASE_OPCODE_DONE
-                            terminated = true;
-                            break;
-                        case 0x10u: // REBASE_OPCODE_SET_TYPE_IMM
-                            if (immediate < 1 || immediate > 3) validOpcode = false;
-                            else rebaseType = immediate;
-                            break;
-                        case 0x20u: // REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB
-                            segmentIndex = immediate;
-                            hasSegment = segmentIndex < machoSegments.size();
-                            if (!readULEB(streamCursor, value)) validOpcode = false;
-                            else segmentOffset = value;
-                            if (!hasSegment) validOpcode = false;
-                            break;
-                        case 0x30u: // REBASE_OPCODE_ADD_ADDR_ULEB
-                            if (!readULEB(streamCursor, value) || !addOffset(value)) validOpcode = false;
-                            break;
-                        case 0x40u: // REBASE_OPCODE_ADD_ADDR_IMM_SCALED
-                            if (!addOffset(static_cast<std::uint64_t>(immediate) * (info.is64Bit ? 8u : 4u)))
-                                validOpcode = false;
-                            break;
-                        case 0x50u: // REBASE_OPCODE_DO_REBASE_IMM_TIMES
-                            for (std::uint8_t i = 0; i < immediate && validOpcode; ++i)
-                                validOpcode = emitRebase();
-                            break;
-                        case 0x60u: // REBASE_OPCODE_DO_REBASE_ULEB_TIMES
-                            if (!readULEB(streamCursor, value) || value > maxRebaseEntries - emitted)
-                                validOpcode = false;
-                            else for (std::uint64_t i = 0; i < value && validOpcode; ++i)
-                                validOpcode = emitRebase();
-                            break;
-                        case 0x70u: // REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB
-                            if (!emitRebase() || !readULEB(streamCursor, value) || !addOffset(value))
-                                validOpcode = false;
-                            break;
-                        case 0x80u: { // REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB
-                            std::uint64_t skip = 0;
-                            if (!readULEB(streamCursor, value) || !readULEB(streamCursor, skip) ||
-                                value > maxRebaseEntries - emitted) {
-                                validOpcode = false;
-                                break;
-                            }
-                            for (std::uint64_t i = 0; i < value && validOpcode; ++i)
-                                validOpcode = emitRebase() && addOffset(skip);
-                            break;
-                        }
-                        default:
-                            validOpcode = false;
-                            break;
-                        }
-                        if (!validOpcode) {
-                            diag(info, "MACHO_REBASE_OPCODE",
-                                 "Mach-O dyld rebase stream contains an invalid opcode, operand, segment, or rebase location",
-                                 static_cast<std::size_t>(streamCursor - 1));
-                            break;
-                        }
-                    }
-                    if (!terminated && streamCursor == streamEnd)
-                        diag(info, "MACHO_REBASE_UNTERMINATED",
-                             "Mach-O dyld rebase stream does not end with REBASE_OPCODE_DONE",
-                             static_cast<std::size_t>(rebaseOffset));
                 }
             }
 
