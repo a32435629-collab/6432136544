@@ -155,6 +155,10 @@ if(DLL_LULZ_BUILD_TESTS)
         target_compile_options(lulz_ai_tests PRIVATE -UNDEBUG)
     endif()
     add_test(NAME lulz_ai_tests COMMAND lulz_ai_tests)
+
+    add_executable(lulz_binary_foundation_tests tests/binary_foundation_test.cpp)
+    target_link_libraries(lulz_binary_foundation_tests PRIVATE lulz_core)
+    add_test(NAME lulz_binary_foundation_tests COMMAND lulz_binary_foundation_tests)
 endif()
 
 if(DLL_LULZ_BUILD_BENCHMARKS)
