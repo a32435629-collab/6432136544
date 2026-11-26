@@ -279,6 +279,7 @@ int main() {
     assert(!badUnixThreadRip.valid);
 
     auto duplicateUnixThreadBytes = makeMachO64UnixThread();
+    duplicateUnixThreadBytes.resize(0x300);
     put32(duplicateUnixThreadBytes, 16, 3);
     put32(duplicateUnixThreadBytes, 20, 520);
     const std::size_t secondThread = 32 + 152 + 184;
