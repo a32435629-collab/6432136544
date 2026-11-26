@@ -334,6 +334,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint64_t cursor = headerSize;
             const std::uint64_t commandEnd = cursor + commandBytes;
             bool hasMainCommand = false;
+            bool hasUnixThreadCommand = false;
+            std::uint64_t unixThreadEntryPoint = 0;
             for (std::uint32_t i = 0; i < commandCount; ++i) {
                 if (!rangeFits(cursor, 8, static_cast<std::size_t>(commandEnd))) {
                     diag(info, "MACHO_COMMAND_TRUNCATED", "Mach-O load command header is truncated", static_cast<std::size_t>(cursor));
@@ -383,6 +385,51 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         (protection & ~maxProtection) != 0)
                         diag(info, "MACHO_SEGMENT_PROTECTION", "Mach-O segment protections are invalid or exceed maximum protections", base);
                     info.sections.push_back({name8(image, base + 8), fileOffset, fileSize, vmAddress, vmSize, (protection & 4u) != 0});
+                } else if (command == 0x5u) { // LC_UNIXTHREAD
+                    const auto base = static_cast<std::size_t>(cursor);
+                    if (hasUnixThreadCommand) {
+                        diag(info, "MACHO_UNIXTHREAD_DUPLICATE", "Mach-O image contains more than one LC_UNIXTHREAD command", base);
+                        break;
+                    }
+                    hasUnixThreadCommand = true;
+                    if (info.architecture != 0x01000007u) {
+                        // The thread-state layouts are architecture-specific. Preserve
+                        // the command but do not interpret an unknown CPU layout.
+                    } else {
+                        std::uint64_t stateCursor = cursor + 8;
+                        const std::uint64_t stateEnd = cursor + size;
+                        bool foundX64State = false;
+                        while (stateCursor < stateEnd) {
+                            if (!rangeFits(stateCursor, 8, static_cast<std::size_t>(stateEnd))) {
+                                diag(info, "MACHO_UNIXTHREAD_FLAVOR_TRUNCATED", "LC_UNIXTHREAD flavor/count header is truncated", static_cast<std::size_t>(stateCursor));
+                                break;
+                            }
+                            const auto flavor = view.u32le(static_cast<std::size_t>(stateCursor)).value_or(0);
+                            const auto count = view.u32le(static_cast<std::size_t>(stateCursor) + 4).value_or(0);
+                            const std::uint64_t stateBytes = static_cast<std::uint64_t>(count) * 4u;
+                            const std::uint64_t stateData = stateCursor + 8;
+                            if (!rangeFits(stateData, stateBytes, static_cast<std::size_t>(stateEnd))) {
+                                diag(info, "MACHO_UNIXTHREAD_STATE_RANGE", "LC_UNIXTHREAD register state exceeds command bounds", static_cast<std::size_t>(stateCursor));
+                                break;
+                            }
+                            if (flavor == 4u) { // x86_THREAD_STATE64
+                                if (foundX64State) {
+                                    diag(info, "MACHO_UNIXTHREAD_STATE_DUPLICATE", "LC_UNIXTHREAD contains duplicate x86-64 thread states", static_cast<std::size_t>(stateCursor));
+                                    break;
+                                }
+                                foundX64State = true;
+                                if (count != 42u) {
+                                    diag(info, "MACHO_UNIXTHREAD_STATE_SIZE", "x86_THREAD_STATE64 must contain exactly 42 32-bit words", static_cast<std::size_t>(stateCursor) + 4);
+                                    break;
+                                }
+                                // x86_thread_state64_t.rip is the 17th 64-bit register.
+                                unixThreadEntryPoint = view.u64le(static_cast<std::size_t>(stateData) + 16u * 8u).value_or(0);
+                            }
+                            stateCursor = stateData + stateBytes;
+                        }
+                        if (!foundX64State)
+                            diag(info, "MACHO_UNIXTHREAD_STATE_MISSING", "LC_UNIXTHREAD has no x86_THREAD_STATE64 record", base);
+                    }
                 } else if (command == 0x80000028u) { // LC_MAIN
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 24) {
@@ -404,6 +451,24 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             }
             if (cursor != commandEnd)
                 diag(info, "MACHO_COMMAND_BYTES", "Mach-O command sizes do not match sizeofcmds", static_cast<std::size_t>(cursor));
+
+            if (hasMainCommand && hasUnixThreadCommand)
+                diag(info, "MACHO_ENTRYPOINT_CONFLICT", "Mach-O image contains both LC_MAIN and LC_UNIXTHREAD entry-point commands", 0);
+
+            if (!hasMainCommand && hasUnixThreadCommand && info.architecture == 0x01000007u) {
+                info.entryPoint = unixThreadEntryPoint;
+                bool mappedExecutableEntry = false;
+                for (const auto& segment : info.sections) {
+                    if (!segment.executable || unixThreadEntryPoint < segment.address ||
+                        unixThreadEntryPoint - segment.address >= segment.virtualSize) continue;
+                    info.entryPoint = unixThreadEntryPoint;
+                    mappedExecutableEntry = true;
+                    break;
+                }
+                if (unixThreadEntryPoint == 0 || !mappedExecutableEntry)
+                    diag(info, "MACHO_UNIXTHREAD_ENTRY_NOT_EXECUTABLE",
+                         "x86-64 thread RIP is not inside an executable segment", 0);
+            }
 
             if (hasMainCommand && rangeFits(info.entryFileOffset, 1, image.size())) {
                 bool mappedExecutableEntry = false;

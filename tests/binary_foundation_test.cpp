@@ -62,6 +62,18 @@ std::vector<std::uint8_t> makeMachO64() {
     put64(b, main + 16, 0x4000); // stacksize
     return b;
 }
+std::vector<std::uint8_t> makeMachO64UnixThread() {
+    auto b = makeMachO64();
+    put32(b, 16, 2); // segment + LC_UNIXTHREAD
+    put32(b, 20, 336);
+    const std::size_t thread = 32 + 152;
+    put32(b, thread, 0x5); // LC_UNIXTHREAD
+    put32(b, thread + 4, 184);
+    put32(b, thread + 8, 4); // x86_THREAD_STATE64
+    put32(b, thread + 12, 42); // x86_THREAD_STATE64_COUNT
+    put64(b, thread + 16 + 16 * 8, 0x100000080ull); // RIP
+    return b;
+}
 std::vector<std::uint8_t> makeElf64() {
     std::vector<std::uint8_t> b(0x200);
     b[0] = 0x7f; b[1] = 'E'; b[2] = 'L'; b[3] = 'F';
@@ -251,6 +263,32 @@ int main() {
     put64(duplicateMachOMainBytes, duplicateMain + 8, 0x80);
     auto duplicateMachOMain = analyzeFormat(BinaryImage::fromBytes(std::move(duplicateMachOMainBytes)));
     assert(!duplicateMachOMain.valid);
+
+    auto machoUnixThread = analyzeFormat(BinaryImage::fromBytes(makeMachO64UnixThread()));
+    assert(machoUnixThread.format == Format::MachO && machoUnixThread.valid);
+    assert(machoUnixThread.entryPoint == 0x100000080ull);
+
+    auto badUnixThreadCountBytes = makeMachO64UnixThread();
+    put32(badUnixThreadCountBytes, 32 + 152 + 12, 41);
+    auto badUnixThreadCount = analyzeFormat(BinaryImage::fromBytes(std::move(badUnixThreadCountBytes)));
+    assert(!badUnixThreadCount.valid);
+
+    auto badUnixThreadRipBytes = makeMachO64UnixThread();
+    put64(badUnixThreadRipBytes, 32 + 152 + 16 + 16 * 8, 0x200000000ull);
+    auto badUnixThreadRip = analyzeFormat(BinaryImage::fromBytes(std::move(badUnixThreadRipBytes)));
+    assert(!badUnixThreadRip.valid);
+
+    auto duplicateUnixThreadBytes = makeMachO64UnixThread();
+    put32(duplicateUnixThreadBytes, 16, 3);
+    put32(duplicateUnixThreadBytes, 20, 520);
+    const std::size_t secondThread = 32 + 152 + 184;
+    put32(duplicateUnixThreadBytes, secondThread, 0x5);
+    put32(duplicateUnixThreadBytes, secondThread + 4, 184);
+    put32(duplicateUnixThreadBytes, secondThread + 8, 4);
+    put32(duplicateUnixThreadBytes, secondThread + 12, 42);
+    put64(duplicateUnixThreadBytes, secondThread + 16 + 16 * 8, 0x100000080ull);
+    auto duplicateUnixThread = analyzeFormat(BinaryImage::fromBytes(std::move(duplicateUnixThreadBytes)));
+    assert(!duplicateUnixThread.valid);
 
     auto badMachOBytes = makeMachO64();
     put64(badMachOBytes, 32 + 32, 0xfffffffffffffff0ull);
