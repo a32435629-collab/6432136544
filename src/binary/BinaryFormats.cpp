@@ -769,8 +769,6 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                              "Mach-O dyld rebase stream does not end with REBASE_OPCODE_DONE",
                              static_cast<std::size_t>(rebaseOffset));
                 }
-            }
-
 
                 // Classic dyld bind stream. Weak and lazy bind streams are
                 // deliberately handled by their own passes.
