@@ -342,7 +342,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t localRelocationOffset = 0, localRelocationCount = 0;
             std::uint32_t indirectSymbolOffset = 0, indirectSymbolCount = 0;
             std::uint32_t symbolTableOfContentsOffset = 0, symbolTableOfContentsCount = 0, moduleTableOffset = 0, moduleTableCount = 0;
-            std::uint32_t externalReferenceSymbolCount = 0;
+            std::uint32_t externalReferenceSymbolOffset = 0, externalReferenceSymbolCount = 0;
             std::uint32_t localSymbolIndex = 0, localSymbolCount = 0;
             std::uint32_t externalSymbolIndex = 0, externalSymbolCount = 0;
             std::uint32_t undefinedSymbolIndex = 0, undefinedSymbolCount = 0;
@@ -493,6 +493,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     symbolTableOfContentsCount = view.u32le(base + 36).value_or(0);
                     moduleTableOffset = view.u32le(base + 40).value_or(0);
                     moduleTableCount = view.u32le(base + 44).value_or(0);
+                    externalReferenceSymbolOffset = view.u32le(base + 48).value_or(0);
                     externalReferenceSymbolCount = view.u32le(base + 52).value_or(0);
                     externalRelocationOffset = view.u32le(base + 64).value_or(0);
                     externalRelocationCount = view.u32le(base + 68).value_or(0);
@@ -608,6 +609,31 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             continue;
                         }
                         info.indirectSymbols.push_back(symbolIndex);
+                    }
+                }
+            }
+
+            if (hasDynamicSymbolTable) {
+                constexpr std::uint64_t externalReferenceEntrySize = 4;
+                const auto externalReferenceBytes = static_cast<std::uint64_t>(externalReferenceSymbolCount) * externalReferenceEntrySize;
+                if (!rangeFits(externalReferenceSymbolOffset, externalReferenceBytes, image.size())) {
+                    diag(info, "MACHO_EXTREFS_RANGE",
+                         "Mach-O external reference table extends beyond the file", externalReferenceSymbolOffset);
+                } else {
+                    info.externalReferences.reserve(externalReferenceSymbolCount);
+                    for (std::uint32_t i = 0; i < externalReferenceSymbolCount; ++i) {
+                        const auto entry = static_cast<std::size_t>(
+                            static_cast<std::uint64_t>(externalReferenceSymbolOffset) +
+                            static_cast<std::uint64_t>(i) * externalReferenceEntrySize);
+                        const auto rawReference = view.u32le(entry).value_or(0);
+                        const auto symbolIndex = rawReference >> 8;
+                        const auto flags = static_cast<std::uint8_t>(rawReference & 0xffu);
+                        if (symbolIndex >= info.symbols.size()) {
+                            diag(info, "MACHO_EXTREFS_SYMBOL_INDEX",
+                                 "Mach-O external reference entry references a missing symbol", entry);
+                            continue;
+                        }
+                        info.externalReferences.push_back({symbolIndex, flags});
                     }
                 }
             }

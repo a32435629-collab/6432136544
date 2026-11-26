@@ -124,6 +124,8 @@ std::vector<std::uint8_t> makeMachO64WithModuleTable() {
     put32(b, dysymtab + 44, 1);
     put32(b, 32 + 152 + 24 + 20, 12); // extend string table for module name
     put32(b, dysymtab + 52, 1);
+    put32(b, dysymtab + 48, 0x1f0); // external reference table offset
+    put32(b, 0x1f0, 1); // symbol index 0, reference flags 1
     put32(b, 0x1b0, 5);
     put32(b, 0x1b4, 0); put32(b, 0x1b8, 1);
     put32(b, 0x1bc, 0); put32(b, 0x1c0, 1);
@@ -435,6 +437,31 @@ int main() {
     for (const auto& diagnostic : badMachODynamicSymbolRange.diagnostics.diagnostics)
         if (diagnostic.code == "MACHO_DYSYMTAB_EXTERNAL_SYMBOL_RANGE") foundDynamicSymbolRange = true;
     assert(foundDynamicSymbolRange);
+
+    auto machoExternalReferences = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithModuleTable()));
+    assert(machoExternalReferences.format == Format::MachO && machoExternalReferences.valid);
+    assert(machoExternalReferences.externalReferences.size() == 1);
+    assert(machoExternalReferences.externalReferences[0].symbolIndex == 0);
+    assert(machoExternalReferences.externalReferences[0].flags == 1);
+
+    auto badMachOExternalReferenceRangeBytes = makeMachO64WithModuleTable();
+    const std::size_t externalReferenceDysymtab = 32 + 152 + 24 + 24;
+    put32(badMachOExternalReferenceRangeBytes, externalReferenceDysymtab + 48, 0x1fc);
+    auto badMachOExternalReferenceRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOExternalReferenceRangeBytes)));
+    assert(!badMachOExternalReferenceRange.valid);
+    bool foundExternalReferenceRange = false;
+    for (const auto& diagnostic : badMachOExternalReferenceRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_EXTREFS_RANGE") foundExternalReferenceRange = true;
+    assert(foundExternalReferenceRange);
+
+    auto badMachOExternalReferenceSymbolBytes = makeMachO64WithModuleTable();
+    put32(badMachOExternalReferenceSymbolBytes, 0x1f0, 0x00000101u); // symbol index 1 does not exist
+    auto badMachOExternalReferenceSymbol = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOExternalReferenceSymbolBytes)));
+    assert(!badMachOExternalReferenceSymbol.valid);
+    bool foundExternalReferenceSymbol = false;
+    for (const auto& diagnostic : badMachOExternalReferenceSymbol.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_EXTREFS_SYMBOL_INDEX") foundExternalReferenceSymbol = true;
+    assert(foundExternalReferenceSymbol);
 
     auto machoModuleTable = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithModuleTable()));
     assert(machoModuleTable.format == Format::MachO && machoModuleTable.valid);
