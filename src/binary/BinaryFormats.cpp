@@ -341,6 +341,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t externalRelocationOffset = 0, externalRelocationCount = 0;
             std::uint32_t localRelocationOffset = 0, localRelocationCount = 0;
             std::uint32_t indirectSymbolOffset = 0, indirectSymbolCount = 0;
+            std::uint32_t symbolTableOfContentsOffset = 0, symbolTableOfContentsCount = 0, moduleTableCount = 0;
             std::uint32_t localSymbolIndex = 0, localSymbolCount = 0;
             std::uint32_t externalSymbolIndex = 0, externalSymbolCount = 0;
             std::uint32_t undefinedSymbolIndex = 0, undefinedSymbolCount = 0;
@@ -487,6 +488,9 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     undefinedSymbolCount = view.u32le(base + 28).value_or(0);
                     indirectSymbolOffset = view.u32le(base + 56).value_or(0);
                     indirectSymbolCount = view.u32le(base + 60).value_or(0);
+                    symbolTableOfContentsOffset = view.u32le(base + 32).value_or(0);
+                    symbolTableOfContentsCount = view.u32le(base + 36).value_or(0);
+                    moduleTableCount = view.u32le(base + 44).value_or(0);
                     externalRelocationOffset = view.u32le(base + 64).value_or(0);
                     externalRelocationCount = view.u32le(base + 68).value_or(0);
                     localRelocationOffset = view.u32le(base + 72).value_or(0);
@@ -601,6 +605,35 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             continue;
                         }
                         info.indirectSymbols.push_back(symbolIndex);
+                    }
+                }
+            }
+
+            if (hasDynamicSymbolTable) {
+                constexpr std::uint64_t tocEntrySize = 8;
+                const auto tocBytes = static_cast<std::uint64_t>(symbolTableOfContentsCount) * tocEntrySize;
+                if (!rangeFits(symbolTableOfContentsOffset, tocBytes, image.size())) {
+                    diag(info, "MACHO_DYSYMTAB_TOC_RANGE",
+                         "Mach-O dynamic symbol table TOC extends beyond the file", symbolTableOfContentsOffset);
+                } else {
+                    info.symbolTableOfContents.reserve(symbolTableOfContentsCount);
+                    for (std::uint32_t i = 0; i < symbolTableOfContentsCount; ++i) {
+                        const auto entry = static_cast<std::size_t>(
+                            static_cast<std::uint64_t>(symbolTableOfContentsOffset) +
+                            static_cast<std::uint64_t>(i) * tocEntrySize);
+                        const auto moduleIndex = view.u32le(entry).value_or(0);
+                        const auto symbolIndex = view.u32le(entry + 4).value_or(0);
+                        if (moduleIndex >= moduleTableCount) {
+                            diag(info, "MACHO_DYSYMTAB_TOC_MODULE_INDEX",
+                                 "Mach-O TOC entry references a missing module-table entry", entry);
+                            continue;
+                        }
+                        if (symbolIndex >= info.symbols.size()) {
+                            diag(info, "MACHO_DYSYMTAB_TOC_SYMBOL_INDEX",
+                                 "Mach-O TOC entry references a missing symbol", entry + 4);
+                            continue;
+                        }
+                        info.symbolTableOfContents.push_back({moduleIndex, symbolIndex});
                     }
                 }
             }

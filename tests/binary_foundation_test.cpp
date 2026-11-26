@@ -107,6 +107,16 @@ std::vector<std::uint8_t> makeMachO64WithIndirectSymbols() {
     put32(b, 0x1a0, 0); // symbol index 0
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithTOC() {
+    auto b = makeMachO64WithIndirectSymbols();
+    const std::size_t dysymtab = 32 + 152 + 24 + 24;
+    put32(b, dysymtab + 32, 0x1a8); // tocoff
+    put32(b, dysymtab + 36, 1); // ntoc
+    put32(b, dysymtab + 44, 1); // nmodtab
+    put32(b, 0x1a8, 0); // module index
+    put32(b, 0x1ac, 0); // symbol index
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64WithSectionRelocation() {
     auto b = makeMachO64WithSymtab();
     const std::size_t section = 32 + 72;
@@ -407,6 +417,32 @@ int main() {
     for (const auto& diagnostic : badMachODynamicSymbolRange.diagnostics.diagnostics)
         if (diagnostic.code == "MACHO_DYSYMTAB_EXTERNAL_SYMBOL_RANGE") foundDynamicSymbolRange = true;
     assert(foundDynamicSymbolRange);
+
+    auto machoTOC = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithTOC()));
+    assert(machoTOC.format == Format::MachO && machoTOC.valid);
+    assert(machoTOC.symbolTableOfContents.size() == 1);
+    assert(machoTOC.symbolTableOfContents[0].moduleIndex == 0);
+    assert(machoTOC.symbolTableOfContents[0].symbolIndex == 0);
+
+    auto badMachOTocRangeBytes = makeMachO64WithTOC();
+    const std::size_t tocDysymtab = 32 + 152 + 24 + 24;
+    put32(badMachOTocRangeBytes, tocDysymtab + 32, 0x1fc);
+    auto badMachOTocRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOTocRangeBytes)));
+    assert(!badMachOTocRange.valid);
+    bool foundTocRange = false;
+    for (const auto& diagnostic : badMachOTocRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_DYSYMTAB_TOC_RANGE") foundTocRange = true;
+    assert(foundTocRange);
+
+    auto badMachOTocModuleBytes = makeMachO64WithTOC();
+    put32(badMachOTocModuleBytes, 0x1a8, 1);
+    auto badMachOTocModule = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOTocModuleBytes)));
+    assert(!badMachOTocModule.valid);
+
+    auto badMachOTocSymbolBytes = makeMachO64WithTOC();
+    put32(badMachOTocSymbolBytes, 0x1ac, 1);
+    auto badMachOTocSymbol = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOTocSymbolBytes)));
+    assert(!badMachOTocSymbol.valid);
 
     auto machoIndirectSymbols = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithIndirectSymbols()));
     assert(machoIndirectSymbols.format == Format::MachO && machoIndirectSymbols.valid);
