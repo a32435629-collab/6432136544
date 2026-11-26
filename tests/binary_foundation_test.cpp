@@ -95,6 +95,18 @@ std::vector<std::uint8_t> makeMachO64WithRelocations() {
     put32(b, 0x1a4, 0x08000000u); // external, 8-byte, unsigned, symbol 0
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithIndirectSymbols() {
+    auto b = makeMachO64WithSymtab();
+    put32(b, 16, 4); // segment + LC_MAIN + LC_SYMTAB + LC_DYSYMTAB
+    put32(b, 20, 280);
+    const std::size_t dysymtab = 32 + 152 + 24 + 24;
+    put32(b, dysymtab, 0xbu); // LC_DYSYMTAB
+    put32(b, dysymtab + 4, 80);
+    put32(b, dysymtab + 56, 0x1a0); // indirectsymoff
+    put32(b, dysymtab + 60, 1); // nindirectsyms
+    put32(b, 0x1a0, 0); // symbol index 0
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64WithSectionRelocation() {
     auto b = makeMachO64WithSymtab();
     const std::size_t section = 32 + 72;
@@ -371,6 +383,31 @@ int main() {
     put32(nonExternalMachORelocationBytes, 0x1a4, 0x00000000u);
     auto nonExternalMachORelocation = analyzeFormat(BinaryImage::fromBytes(std::move(nonExternalMachORelocationBytes)));
     assert(!nonExternalMachORelocation.valid);
+
+    auto machoIndirectSymbols = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithIndirectSymbols()));
+    assert(machoIndirectSymbols.format == Format::MachO && machoIndirectSymbols.valid);
+    assert(machoIndirectSymbols.indirectSymbols.size() == 1);
+    assert(machoIndirectSymbols.indirectSymbols[0] == 0);
+
+    auto badMachOIndirectRangeBytes = makeMachO64WithIndirectSymbols();
+    put32(badMachOIndirectRangeBytes, 32 + 152 + 24 + 24 + 56, 0x1fc);
+    auto badMachOIndirectRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOIndirectRangeBytes)));
+    assert(!badMachOIndirectRange.valid);
+    bool foundIndirectRange = false;
+    for (const auto& diagnostic : badMachOIndirectRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_INDIRECT_SYMTAB_RANGE") foundIndirectRange = true;
+    assert(foundIndirectRange);
+
+    auto badMachOIndirectIndexBytes = makeMachO64WithIndirectSymbols();
+    put32(badMachOIndirectIndexBytes, 0x1a0, 1);
+    auto badMachOIndirectIndex = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOIndirectIndexBytes)));
+    assert(!badMachOIndirectIndex.valid);
+
+    auto machoLocalIndirectSymbolBytes = makeMachO64WithIndirectSymbols();
+    put32(machoLocalIndirectSymbolBytes, 0x1a0, 0x80000000u);
+    auto machoLocalIndirectSymbol = analyzeFormat(BinaryImage::fromBytes(std::move(machoLocalIndirectSymbolBytes)));
+    assert(machoLocalIndirectSymbol.valid);
+    assert(machoLocalIndirectSymbol.indirectSymbols[0] == 0x80000000u);
 
     auto machoSectionRelocation = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithSectionRelocation()));
     assert(machoSectionRelocation.format == Format::MachO && machoSectionRelocation.valid);

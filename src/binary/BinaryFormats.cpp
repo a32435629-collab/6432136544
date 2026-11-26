@@ -340,6 +340,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t symbolOffset = 0, symbolCount = 0, stringOffset = 0, stringSize = 0;
             std::uint32_t externalRelocationOffset = 0, externalRelocationCount = 0;
             std::uint32_t localRelocationOffset = 0, localRelocationCount = 0;
+            std::uint32_t indirectSymbolOffset = 0, indirectSymbolCount = 0;
             bool hasDynamicSymbolTable = false;
             struct SectionRelocationTable { std::uint32_t offset; std::uint32_t count; std::uint64_t sectionSize; std::size_t diagnosticOffset; };
             std::vector<SectionRelocationTable> sectionRelocationTables;
@@ -475,6 +476,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     hasDynamicSymbolTable = true;
+                    indirectSymbolOffset = view.u32le(base + 56).value_or(0);
+                    indirectSymbolCount = view.u32le(base + 60).value_or(0);
                     externalRelocationOffset = view.u32le(base + 64).value_or(0);
                     externalRelocationCount = view.u32le(base + 68).value_or(0);
                     localRelocationOffset = view.u32le(base + 72).value_or(0);
@@ -546,6 +549,32 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             }
                         }
                         info.symbols.push_back({std::move(symbolName), symbolType, sectionIndex, description, value});
+                    }
+                }
+            }
+
+            if (hasDynamicSymbolTable) {
+                constexpr std::uint64_t indirectSymbolEntrySize = 4;
+                const auto indirectSymbolBytes = static_cast<std::uint64_t>(indirectSymbolCount) * indirectSymbolEntrySize;
+                if (!rangeFits(indirectSymbolOffset, indirectSymbolBytes, image.size())) {
+                    diag(info, "MACHO_INDIRECT_SYMTAB_RANGE",
+                         "Mach-O indirect symbol table extends beyond the file", indirectSymbolOffset);
+                } else {
+                    info.indirectSymbols.reserve(indirectSymbolCount);
+                    for (std::uint32_t i = 0; i < indirectSymbolCount; ++i) {
+                        const auto entry = static_cast<std::size_t>(
+                            static_cast<std::uint64_t>(indirectSymbolOffset) +
+                            static_cast<std::uint64_t>(i) * indirectSymbolEntrySize);
+                        const auto symbolIndex = view.u32le(entry).value_or(0);
+                        constexpr std::uint32_t INDIRECT_SYMBOL_LOCAL = 0x80000000u;
+                        constexpr std::uint32_t INDIRECT_SYMBOL_ABS = 0x40000000u;
+                        if ((symbolIndex & (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS)) == 0 &&
+                            symbolIndex >= info.symbols.size()) {
+                            diag(info, "MACHO_INDIRECT_SYMBOL_INDEX",
+                                 "Mach-O indirect symbol entry references a missing symbol", entry);
+                            continue;
+                        }
+                        info.indirectSymbols.push_back(symbolIndex);
                     }
                 }
             }
