@@ -17,6 +17,8 @@ struct MachOExternalReference { std::uint32_t symbolIndex=0; std::uint8_t flags=
 struct MachOInitTermPointer { std::uint64_t address=0; std::uint64_t target=0; bool initializer=false; };
 struct MachOTwoLevelHint { std::uint8_t subImage=0; std::uint32_t tableOfContentsIndex=0; };
 struct MachOCodeSignatureBlob { std::uint32_t slotType=0; std::uint32_t magic=0; std::uint32_t length=0; std::uint32_t offset=0; };
+enum class MachODyldStreamKind { Rebase, Bind, WeakBind, LazyBind, Export };
+struct MachODyldStream { MachODyldStreamKind kind=MachODyldStreamKind::Rebase; std::uint32_t offset=0; std::uint32_t size=0; };
 struct MachOModule {
     std::string name;
     std::uint32_t externalSymbolIndex=0, externalSymbolCount=0;
@@ -28,7 +30,7 @@ struct MachOModule {
     std::uint64_t objcModuleInfoAddress=0;
 };
 struct Relocation { std::int32_t address=0; std::uint32_t symbolNumber=0; std::uint32_t value=0; std::uint8_t type=0; std::uint8_t length=0; bool pcRelative=false; bool external=false; bool scattered=false; };
-struct FormatInfo { Format format=Format::Unknown; bool valid=false; bool is64Bit=false; std::uint64_t imageBase=0, entryPoint=0, entryFileOffset=0, entryStackSize=0; std::uint32_t architecture=0, architectureSubtype=0, fileType=0; std::vector<Section> sections; std::vector<DataDirectory> directories; std::uint32_t localSymbolIndex=0, localSymbolCount=0, externalSymbolIndex=0, externalSymbolCount=0, undefinedSymbolIndex=0, undefinedSymbolCount=0; std::vector<Symbol> symbols; std::vector<std::uint32_t> indirectSymbols; std::vector<MachOSymbolTableOfContentsEntry> symbolTableOfContents; std::vector<MachOExternalReference> externalReferences; std::vector<MachOInitTermPointer> initTermPointers; std::vector<MachOTwoLevelHint> twoLevelHints; std::uint32_t codeSignatureOffset=0, codeSignatureSize=0, codeSignatureMagic=0; std::vector<MachOCodeSignatureBlob> codeSignatureBlobs; std::vector<MachOModule> modules; std::vector<Relocation> relocations; ValidationReport diagnostics; };
+struct FormatInfo { Format format=Format::Unknown; bool valid=false; bool is64Bit=false; std::uint64_t imageBase=0, entryPoint=0, entryFileOffset=0, entryStackSize=0; std::uint32_t architecture=0, architectureSubtype=0, fileType=0; std::vector<Section> sections; std::vector<DataDirectory> directories; std::uint32_t localSymbolIndex=0, localSymbolCount=0, externalSymbolIndex=0, externalSymbolCount=0, undefinedSymbolIndex=0, undefinedSymbolCount=0; std::vector<Symbol> symbols; std::vector<std::uint32_t> indirectSymbols; std::vector<MachOSymbolTableOfContentsEntry> symbolTableOfContents; std::vector<MachOExternalReference> externalReferences; std::vector<MachOInitTermPointer> initTermPointers; std::vector<MachOTwoLevelHint> twoLevelHints; std::uint32_t codeSignatureOffset=0, codeSignatureSize=0, codeSignatureMagic=0; std::vector<MachOCodeSignatureBlob> codeSignatureBlobs; std::vector<MachODyldStream> dyldStreams; std::vector<MachOModule> modules; std::vector<Relocation> relocations; ValidationReport diagnostics; };
 FormatInfo analyzeFormat(const BinaryImage&);
 std::optional<std::uint64_t> rvaToOffset(const FormatInfo&,std::uint64_t);
 std::optional<std::uint64_t> offsetToRva(const FormatInfo&,std::uint64_t);

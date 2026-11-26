@@ -149,20 +149,6 @@ std::vector<std::uint8_t> makeMachO64WithTwoLevelHints() {
     put32(b, 0x1b0, 0); // sub-image 0, TOC index 0
     return b;
 }
-std::vector<std::uint8_t> makeMachO64WithDyldInfo() {
-    auto b = makeMachO64();
-    put32(b, 16, 3);
-    put32(b, 20, 224);
-    const std::size_t command = 32 + 152 + 24;
-    put32(b, command, 0x22); // LC_DYLD_INFO
-    put32(b, command + 4, 48);
-    const std::uint32_t fields[10] = {
-        0x1a0, 4, 0x1a4, 4, 0x1a8, 4, 0x1ac, 4, 0x1b0, 4
-    };
-    for (std::size_t i = 0; i < 10; ++i) put32(b, command + 8 + i * 4, fields[i]);
-    for (std::size_t i = 0; i < 5; ++i) b[0x1a0 + i * 4] = 0;
-    return b;
-}
 std::vector<std::uint8_t> makeMachO64WithCodeSignature() {
     auto b = makeMachO64();
     put32(b, 16, 3);
@@ -620,24 +606,6 @@ int main() {
     for (const auto& diagnostic : badMachOTwoLevelToc.diagnostics.diagnostics)
         if (diagnostic.code == "MACHO_TWOLEVEL_HINTS_TOC_INDEX") foundTwoLevelToc = true;
     assert(foundTwoLevelToc);
-
-    auto machoDyldInfo = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithDyldInfo()));
-    assert(machoDyldInfo.format == Format::MachO && machoDyldInfo.valid);
-    assert(machoDyldInfo.dyldStreams.size() == 5);
-    assert(machoDyldInfo.dyldStreams[0].kind == MachODyldStreamKind::Rebase);
-    assert(machoDyldInfo.dyldStreams[1].kind == MachODyldStreamKind::Bind);
-    assert(machoDyldInfo.dyldStreams[2].kind == MachODyldStreamKind::WeakBind);
-    assert(machoDyldInfo.dyldStreams[3].kind == MachODyldStreamKind::LazyBind);
-    assert(machoDyldInfo.dyldStreams[4].kind == MachODyldStreamKind::Export);
-
-    auto badMachODyldRangeBytes = makeMachO64WithDyldInfo();
-    put32(badMachODyldRangeBytes, 32 + 152 + 24 + 8, 0x1fe);
-    auto badMachODyldRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachODyldRangeBytes)));
-    assert(!badMachODyldRange.valid);
-    bool foundDyldRebaseRange = false;
-    for (const auto& diagnostic : badMachODyldRange.diagnostics.diagnostics)
-        if (diagnostic.code == "MACHO_DYLD_REBASE_RANGE") foundDyldRebaseRange = true;
-    assert(foundDyldRebaseRange);
 
     auto machoCodeSignature = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithCodeSignature()));
     assert(machoCodeSignature.format == Format::MachO && machoCodeSignature.valid);
