@@ -384,6 +384,30 @@ int main() {
     auto nonExternalMachORelocation = analyzeFormat(BinaryImage::fromBytes(std::move(nonExternalMachORelocationBytes)));
     assert(!nonExternalMachORelocation.valid);
 
+    auto machoDynamicSymbolRangesBytes = makeMachO64WithIndirectSymbols();
+    const std::size_t dynamicSymbolCommand = 32 + 152 + 24 + 24;
+    put32(machoDynamicSymbolRangesBytes, dynamicSymbolCommand + 8, 0); // local symbols
+    put32(machoDynamicSymbolRangesBytes, dynamicSymbolCommand + 12, 0);
+    put32(machoDynamicSymbolRangesBytes, dynamicSymbolCommand + 16, 0); // external definitions
+    put32(machoDynamicSymbolRangesBytes, dynamicSymbolCommand + 20, 1);
+    put32(machoDynamicSymbolRangesBytes, dynamicSymbolCommand + 24, 1); // undefined symbols
+    put32(machoDynamicSymbolRangesBytes, dynamicSymbolCommand + 28, 0);
+    auto machoDynamicSymbolRanges = analyzeFormat(BinaryImage::fromBytes(std::move(machoDynamicSymbolRangesBytes)));
+    assert(machoDynamicSymbolRanges.valid);
+    assert(machoDynamicSymbolRanges.externalSymbolIndex == 0);
+    assert(machoDynamicSymbolRanges.externalSymbolCount == 1);
+    assert(machoDynamicSymbolRanges.undefinedSymbolIndex == 1);
+
+    auto badMachODynamicSymbolRangeBytes = makeMachO64WithIndirectSymbols();
+    put32(badMachODynamicSymbolRangeBytes, dynamicSymbolCommand + 16, 1);
+    put32(badMachODynamicSymbolRangeBytes, dynamicSymbolCommand + 20, 1);
+    auto badMachODynamicSymbolRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachODynamicSymbolRangeBytes)));
+    assert(!badMachODynamicSymbolRange.valid);
+    bool foundDynamicSymbolRange = false;
+    for (const auto& diagnostic : badMachODynamicSymbolRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_DYSYMTAB_EXTERNAL_SYMBOL_RANGE") foundDynamicSymbolRange = true;
+    assert(foundDynamicSymbolRange);
+
     auto machoIndirectSymbols = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithIndirectSymbols()));
     assert(machoIndirectSymbols.format == Format::MachO && machoIndirectSymbols.valid);
     assert(machoIndirectSymbols.indirectSymbols.size() == 1);

@@ -341,6 +341,9 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t externalRelocationOffset = 0, externalRelocationCount = 0;
             std::uint32_t localRelocationOffset = 0, localRelocationCount = 0;
             std::uint32_t indirectSymbolOffset = 0, indirectSymbolCount = 0;
+            std::uint32_t localSymbolIndex = 0, localSymbolCount = 0;
+            std::uint32_t externalSymbolIndex = 0, externalSymbolCount = 0;
+            std::uint32_t undefinedSymbolIndex = 0, undefinedSymbolCount = 0;
             bool hasDynamicSymbolTable = false;
             struct SectionRelocationTable { std::uint32_t offset; std::uint32_t count; std::uint64_t sectionSize; std::size_t diagnosticOffset; };
             std::vector<SectionRelocationTable> sectionRelocationTables;
@@ -476,6 +479,12 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     hasDynamicSymbolTable = true;
+                    localSymbolIndex = view.u32le(base + 8).value_or(0);
+                    localSymbolCount = view.u32le(base + 12).value_or(0);
+                    externalSymbolIndex = view.u32le(base + 16).value_or(0);
+                    externalSymbolCount = view.u32le(base + 20).value_or(0);
+                    undefinedSymbolIndex = view.u32le(base + 24).value_or(0);
+                    undefinedSymbolCount = view.u32le(base + 28).value_or(0);
                     indirectSymbolOffset = view.u32le(base + 56).value_or(0);
                     indirectSymbolCount = view.u32le(base + 60).value_or(0);
                     externalRelocationOffset = view.u32le(base + 64).value_or(0);
@@ -503,6 +512,23 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             }
             if (cursor != commandEnd)
                 diag(info, "MACHO_COMMAND_BYTES", "Mach-O command sizes do not match sizeofcmds", static_cast<std::size_t>(cursor));
+
+            if (hasDynamicSymbolTable) {
+                const auto validateSymbolRange = [&](std::uint32_t index, std::uint32_t count, const char* code, const char* description) {
+                    const std::uint64_t end = static_cast<std::uint64_t>(index) + count;
+                    if (end > symbolCount) {
+                        diag(info, code, description, 0);
+                        return false;
+                    }
+                    return true;
+                };
+                validateSymbolRange(localSymbolIndex, localSymbolCount, "MACHO_DYSYMTAB_LOCAL_SYMBOL_RANGE",
+                                    "LC_DYSYMTAB local symbol range exceeds LC_SYMTAB symbol count");
+                validateSymbolRange(externalSymbolIndex, externalSymbolCount, "MACHO_DYSYMTAB_EXTERNAL_SYMBOL_RANGE",
+                                    "LC_DYSYMTAB external symbol range exceeds LC_SYMTAB symbol count");
+                validateSymbolRange(undefinedSymbolIndex, undefinedSymbolCount, "MACHO_DYSYMTAB_UNDEFINED_SYMBOL_RANGE",
+                                    "LC_DYSYMTAB undefined symbol range exceeds LC_SYMTAB symbol count");
+            }
 
             if (hasSymbolTableCommand) {
                 const std::uint64_t symbolEntrySize = info.is64Bit ? 16u : 12u;
