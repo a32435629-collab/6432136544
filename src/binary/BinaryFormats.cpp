@@ -1,39 +1,337 @@
 #include "binary/BinaryFormats.hpp"
+
 #include <algorithm>
-#include <cstring>
+#include <limits>
+
 namespace lulz::binary {
 namespace {
-std::string name8(const BinaryImage& im,std::size_t o){std::string s;for(std::size_t i=0;i<8&&im.contains(o+i,1)&&im.bytes()[o+i];++i)s.push_back(static_cast<char>(im.bytes()[o+i]));return s;}
-void diag(FormatInfo& f,const char* code,const char* msg,std::size_t o){f.diagnostics.valid=false;f.diagnostics.diagnostics.push_back({code,msg,o});}
+
+bool rangeFits(std::uint64_t offset, std::uint64_t length, std::size_t total) {
+    return offset <= total && length <= static_cast<std::uint64_t>(total) - offset;
 }
-FormatInfo analyzeFormat(const BinaryImage& im){
- FormatInfo f; f.diagnostics=validateImage(im); BinaryView v(im);
- const auto& b=im.bytes();
- if(im.contains(0,4)&&b[0]=='M'&&b[1]=='Z'){
-  f.format=Format::PE;
-  auto pe=v.u32le(0x3c); if(!pe||!im.contains(*pe,24)||b[*pe]!='P'||b[*pe+1]!='E'||b[*pe+2]!=0||b[*pe+3]!=0){diag(f,"PE_BAD_SIGNATURE","Invalid or truncated PE signature",0x3c);return f;}
-  auto coff=*pe+4; auto n=v.u16le(coff+2);auto opt=v.u16le(coff+16); if(!n||!opt||!im.contains(coff+20,*opt)){diag(f,"PE_TRUNCATED","Truncated COFF/optional header",coff);return f;}
-  auto o=coff+20;auto magic=v.u16le(o);f.is64Bit=magic&&*magic==0x20b; if(!magic||(*magic!=0x10b&&*magic!=0x20b)){diag(f,"PE_BAD_OPTIONAL","Unsupported optional header",o);return f;}
-  f.entryPoint=v.u32le(o+16).value_or(0);f.imageBase=f.is64Bit?v.u64le(o+24).value_or(0):v.u32le(o+28).value_or(0);
-  auto dirOffset=o+(f.is64Bit?112:96);auto dirs=v.u32le(o+(f.is64Bit?108:92)).value_or(0);
-  for(std::uint32_t i=0;i<std::min(dirs,16u)&&im.contains(dirOffset+i*8,8);++i){f.directories.push_back({i,v.u32le(dirOffset+i*8).value_or(0),v.u32le(dirOffset+i*8+4).value_or(0)});}
-  auto table=o+*opt; if(!im.contains(table,static_cast<std::size_t>(*n)*40)){diag(f,"PE_SECTIONS_TRUNCATED","Section table extends beyond file",table);return f;}
-  for(std::uint16_t i=0;i<*n;++i){auto s=table+i*40;auto vs=v.u32le(s+8).value_or(0),rs=v.u32le(s+16).value_or(0),ro=v.u32le(s+20).value_or(0),va=v.u32le(s+12).value_or(0),ch=v.u32le(s+36).value_or(0);f.sections.push_back({name8(im,s),ro,rs,va,vs,(ch&0x20000000)!=0});}
-  f.valid=f.diagnostics.valid;return f;
- }
- if(im.contains(0,4)&&b[0]==0x7f&&b[1]=='E'&&b[2]=='L'&&b[3]=='F'){
-  f.format=Format::ELF;f.is64Bit=b[4]==2;const bool le=b[5]==1;if(!le){diag(f,"ELF_ENDIAN_UNSUPPORTED","Only little-endian ELF supported in this slice",5);return f;}
-  const auto eh=f.is64Bit?64u:52u;if(!im.contains(0,eh)){diag(f,"ELF_TRUNCATED","ELF header truncated",0);return f;}
-  f.entryPoint=f.is64Bit?v.u64le(24).value_or(0):v.u32le(24).value_or(0);
-  auto phoff=f.is64Bit?v.u64le(32).value_or(0):v.u32le(28).value_or(0);auto phentsize=v.u16le(f.is64Bit?54:42).value_or(0),phnum=v.u16le(f.is64Bit?56:44).value_or(0);
-  for(unsigned i=0;i<phnum&&i<4096;++i){auto p=phoff+i*phentsize;if(!im.contains(p,phentsize)||phentsize<(f.is64Bit?56:32)){diag(f,"ELF_PH_TRUNCATED","Program header outside file",p);break;}auto type=v.u32le(p).value_or(0);if(type!=1)continue;auto off=f.is64Bit?v.u64le(p+8).value_or(0):v.u32le(p+4).value_or(0);auto addr=f.is64Bit?v.u64le(p+16).value_or(0):v.u32le(p+8).value_or(0);auto sz=f.is64Bit?v.u64le(p+32).value_or(0):v.u32le(p+16).value_or(0);auto flags=v.u32le(f.is64Bit?p+4:p+24).value_or(0);f.sections.push_back({"LOAD",off,sz,addr,sz,(flags&1)!=0});}
-  f.valid=f.diagnostics.valid;return f;
- }
- if(im.contains(0,4)){auto m=v.u32le(0).value_or(0);if(m==0xfeedfacf||m==0xfeedface){f.format=Format::MachO;f.is64Bit=m==0xfeedfacf;auto n=v.u32le(16).value_or(0),cmdsz=v.u32le(20).value_or(0);auto p=f.is64Bit?32u:28u;if(!im.contains(0,p)||!im.contains(p,cmdsz)){diag(f,"MACHO_TRUNCATED","Mach-O load commands truncated",p);return f;}for(unsigned i=0;i<n&&i<4096;++i){auto cmd=v.u32le(p).value_or(0),sz=v.u32le(p+4).value_or(0);if(sz<8||!im.contains(p,sz)){diag(f,"MACHO_BAD_COMMAND","Invalid load command size",p);break;}if((cmd==0x19&&f.is64Bit)||(cmd==1&&!f.is64Bit)){auto segname=name8(im,p+8);auto vm=f.is64Bit?v.u64le(p+24).value_or(0):v.u32le(p+24).value_or(0);auto vms=f.is64Bit?v.u64le(p+32).value_or(0):v.u32le(p+28).value_or(0);auto fo=f.is64Bit?v.u64le(p+40).value_or(0):v.u32le(p+32).value_or(0);auto fs=f.is64Bit?v.u64le(p+48).value_or(0):v.u32le(p+36).value_or(0);auto fl=v.u32le(p+(f.is64Bit?64:56)).value_or(0);f.sections.push_back({segname,fo,fs,vm,vms,(fl&0x80000000)!=0});}p+=sz;}f.valid=f.diagnostics.valid;return f;}}
- diag(f,"FORMAT_UNKNOWN","Unrecognized binary format",0);return f;
+
+std::string name8(const BinaryImage& image, std::size_t offset) {
+    std::string name;
+    for (std::size_t i = 0; i < 8 && image.contains(offset + i, 1); ++i) {
+        const auto ch = image.bytes()[offset + i];
+        if (ch == 0) break;
+        name.push_back(static_cast<char>(ch));
+    }
+    return name;
 }
-std::optional<std::uint64_t> rvaToOffset(const FormatInfo& f,std::uint64_t r){if(f.format!=Format::PE)return {};for(auto&s:f.sections){auto span=std::max(s.size,s.virtualSize);if(r>=s.address&&r-s.address<span){auto d=r-s.address;if(d>=s.size)return {};return s.offset+d;}}return r<0x1000?std::optional<std::uint64_t>(r):std::nullopt;}
-std::optional<std::uint64_t> offsetToRva(const FormatInfo& f,std::uint64_t o){for(auto&s:f.sections)if(o>=s.offset&&o-s.offset<s.size)return s.address+(o-s.offset);return o<0x1000?std::optional<std::uint64_t>(o):std::nullopt;}
-std::optional<std::uint64_t> vaToRva(const FormatInfo& f,std::uint64_t va){if(va<f.imageBase)return {};return va-f.imageBase;}
-std::vector<EmbeddedPayload> detectEmbeddedPayloads(const BinaryImage& im){std::vector<EmbeddedPayload> out;const auto& b=im.bytes();for(std::size_t i=0;i+4<=b.size();++i){if(b[i]=='M'&&b[i+1]=='Z')out.push_back({"PE",i});else if(b[i]==0x7f&&b[i+1]=='E'&&b[i+2]=='L'&&b[i+3]=='F')out.push_back({"ELF",i});else if(b[i]==0x50&&b[i+1]==0x4b&&b[i+2]==3&&b[i+3]==4)out.push_back({"ZIP",i});else if(b[i]==0x1f&&b[i+1]==0x8b)out.push_back({"GZIP",i});}return out;}
+
+void diag(FormatInfo& info, const char* code, const char* message, std::size_t offset) {
+    info.diagnostics.valid = false;
+    info.diagnostics.diagnostics.push_back({code, message, offset});
 }
+
+void validateSections(FormatInfo& info, const BinaryImage& image) {
+    for (std::size_t i = 0; i < info.sections.size(); ++i) {
+        const auto& section = info.sections[i];
+        if (!rangeFits(section.offset, section.size, image.size())) {
+            diag(info, "SECTION_FILE_RANGE", "Section data extends beyond the file", static_cast<std::size_t>(std::min<std::uint64_t>(section.offset, image.size())));
+        }
+        if (section.virtualSize != 0 &&
+            section.address > std::numeric_limits<std::uint64_t>::max() - section.virtualSize) {
+            diag(info, "SECTION_VIRTUAL_OVERFLOW", "Section virtual address range overflows", 0);
+        }
+        for (std::size_t j = 0; j < i; ++j) {
+            const auto& previous = info.sections[j];
+            if (section.size && previous.size &&
+                previous.offset <= std::numeric_limits<std::uint64_t>::max() - previous.size &&
+                section.offset < previous.offset + previous.size) {
+                diag(info, "SECTION_RAW_OVERLAP", "Section raw file ranges overlap", static_cast<std::size_t>(section.offset));
+                break;
+            }
+        }
+    }
+}
+
+} // namespace
+
+FormatInfo analyzeFormat(const BinaryImage& image) {
+    FormatInfo info;
+    info.diagnostics = validateImage(image);
+    BinaryView view(image);
+    const auto& bytes = image.bytes();
+
+    if (image.size() >= 2 && bytes[0] == 'M' && bytes[1] == 'Z') {
+        info.format = Format::PE;
+        const auto peOffsetValue = view.u32le(0x3c);
+        if (!peOffsetValue) {
+            diag(info, "PE_DOS_HEADER_TRUNCATED", "DOS header does not contain e_lfanew", 0x3c);
+            return info;
+        }
+        const std::uint64_t peOffset = *peOffsetValue;
+        if (!rangeFits(peOffset, 24, image.size()) ||
+            bytes[static_cast<std::size_t>(peOffset)] != 'P' ||
+            bytes[static_cast<std::size_t>(peOffset) + 1] != 'E' ||
+            bytes[static_cast<std::size_t>(peOffset) + 2] != 0 ||
+            bytes[static_cast<std::size_t>(peOffset) + 3] != 0) {
+            diag(info, "PE_BAD_SIGNATURE", "Invalid or truncated PE signature/COFF header", static_cast<std::size_t>(std::min<std::uint64_t>(peOffset, image.size())));
+            return info;
+        }
+
+        const std::size_t coff = static_cast<std::size_t>(peOffset) + 4;
+        const auto sectionCount = view.u16le(coff + 2);
+        const auto optionalSize = view.u16le(coff + 16);
+        if (!sectionCount || !optionalSize) {
+            diag(info, "PE_COFF_TRUNCATED", "COFF header is truncated", coff);
+            return info;
+        }
+        const std::size_t optional = coff + 20;
+        if (!image.contains(optional, *optionalSize) || *optionalSize < 2) {
+            diag(info, "PE_OPTIONAL_TRUNCATED", "Optional header is truncated", optional);
+            return info;
+        }
+        const auto magic = view.u16le(optional);
+        if (!magic || (*magic != 0x10b && *magic != 0x20b)) {
+            diag(info, "PE_BAD_OPTIONAL", "Unsupported PE optional-header magic", optional);
+            return info;
+        }
+        info.is64Bit = *magic == 0x20b;
+        const std::size_t minimum = info.is64Bit ? 112 : 96;
+        if (*optionalSize < minimum) {
+            diag(info, "PE_OPTIONAL_TOO_SMALL", "Optional header is too small for required fields", optional);
+            return info;
+        }
+        const auto entry = view.u32le(optional + 16);
+        if (!entry) {
+            diag(info, "PE_ENTRYPOINT_TRUNCATED", "Entry point field is truncated", optional + 16);
+            return info;
+        }
+        info.entryPoint = *entry;
+        if (info.is64Bit) {
+            const auto base = view.u64le(optional + 24);
+            if (!base) { diag(info, "PE_IMAGE_BASE_TRUNCATED", "PE32+ image base is truncated", optional + 24); return info; }
+            info.imageBase = *base;
+        } else {
+            const auto base = view.u32le(optional + 28);
+            if (!base) { diag(info, "PE_IMAGE_BASE_TRUNCATED", "PE32 image base is truncated", optional + 28); return info; }
+            info.imageBase = *base;
+        }
+
+        const std::size_t numberOffset = optional + (info.is64Bit ? 108 : 92);
+        const std::size_t directoryOffset = optional + (info.is64Bit ? 112 : 96);
+        const auto directoryCount = view.u32le(numberOffset);
+        if (directoryCount) {
+            const auto available = (*optionalSize > (info.is64Bit ? 112u : 96u))
+                ? (*optionalSize - (info.is64Bit ? 112u : 96u)) / 8u : 0u;
+            const auto count = std::min<std::uint32_t>({*directoryCount, 16u, static_cast<std::uint32_t>(available)});
+            for (std::uint32_t i = 0; i < count; ++i) {
+                const auto address = view.u32le(directoryOffset + i * 8);
+                const auto size = view.u32le(directoryOffset + i * 8 + 4);
+                if (address && size) info.directories.push_back({i, *address, *size});
+            }
+            if (*directoryCount > available)
+                diag(info, "PE_DIRECTORIES_TRUNCATED", "Declared data directories exceed optional-header bounds", numberOffset);
+        }
+
+        const std::uint64_t sectionTable = static_cast<std::uint64_t>(optional) + *optionalSize;
+        const std::uint64_t sectionBytes = static_cast<std::uint64_t>(*sectionCount) * 40u;
+        if (!rangeFits(sectionTable, sectionBytes, image.size())) {
+            diag(info, "PE_SECTIONS_TRUNCATED", "Section table extends beyond file", static_cast<std::size_t>(std::min<std::uint64_t>(sectionTable, image.size())));
+            return info;
+        }
+        for (std::uint16_t i = 0; i < *sectionCount; ++i) {
+            const auto offset = static_cast<std::size_t>(sectionTable + static_cast<std::uint64_t>(i) * 40u);
+            const auto virtualSize = view.u32le(offset + 8);
+            const auto address = view.u32le(offset + 12);
+            const auto rawSize = view.u32le(offset + 16);
+            const auto rawOffset = view.u32le(offset + 20);
+            const auto characteristics = view.u32le(offset + 36);
+            if (!virtualSize || !address || !rawSize || !rawOffset || !characteristics) {
+                diag(info, "PE_SECTION_TRUNCATED", "Section header fields are truncated", offset);
+                break;
+            }
+            info.sections.push_back({name8(image, offset), *rawOffset, *rawSize, *address,
+                                     *virtualSize, (*characteristics & 0x20000000u) != 0});
+        }
+        validateSections(info, image);
+        info.valid = info.diagnostics.valid;
+        return info;
+    }
+
+    if (image.size() >= 4 && bytes[0] == 0x7f && bytes[1] == 'E' &&
+        bytes[2] == 'L' && bytes[3] == 'F') {
+        info.format = Format::ELF;
+        if (!image.contains(0, 16)) {
+            diag(info, "ELF_IDENT_TRUNCATED", "ELF identification is truncated", 0);
+            return info;
+        }
+        if (bytes[4] != 1 && bytes[4] != 2) {
+            diag(info, "ELF_CLASS_INVALID", "ELF class must be ELF32 or ELF64", 4);
+            return info;
+        }
+        if (bytes[5] != 1) {
+            diag(info, "ELF_ENDIAN_UNSUPPORTED", "Only little-endian ELF is supported", 5);
+            return info;
+        }
+        if (bytes[6] != 1) {
+            diag(info, "ELF_VERSION_INVALID", "Unsupported ELF identification version", 6);
+            return info;
+        }
+        info.is64Bit = bytes[4] == 2;
+        const std::size_t headerSize = info.is64Bit ? 64 : 52;
+        if (!image.contains(0, headerSize)) {
+            diag(info, "ELF_TRUNCATED", "ELF header is truncated", 0);
+            return info;
+        }
+        info.entryPoint = info.is64Bit ? view.u64le(24).value_or(0) : view.u32le(24).value_or(0);
+        const std::uint64_t phoff = info.is64Bit ? view.u64le(32).value_or(0) : view.u32le(28).value_or(0);
+        const auto ehsize = view.u16le(info.is64Bit ? 52 : 40).value_or(0);
+        const auto phentsize = view.u16le(info.is64Bit ? 54 : 42).value_or(0);
+        const auto phnum = view.u16le(info.is64Bit ? 56 : 44).value_or(0);
+        const std::uint16_t minimumProgramHeader = info.is64Bit ? 56 : 32;
+        if (ehsize < headerSize) diag(info, "ELF_EHSIZE_INVALID", "ELF header size is smaller than its class minimum", info.is64Bit ? 52 : 40);
+        if (phnum != 0 && phentsize < minimumProgramHeader) {
+            diag(info, "ELF_PHENTSIZE_INVALID", "Program-header entry size is too small", info.is64Bit ? 54 : 42);
+            return info;
+        }
+        if (phnum > 4096) {
+            diag(info, "ELF_PHNUM_LIMIT", "Program-header count exceeds safety limit", info.is64Bit ? 56 : 44);
+            return info;
+        }
+        if (phnum && (phentsize != 0) &&
+            (phoff > std::numeric_limits<std::uint64_t>::max() - static_cast<std::uint64_t>(phnum) * phentsize ||
+             !rangeFits(phoff, static_cast<std::uint64_t>(phnum) * phentsize, image.size()))) {
+            diag(info, "ELF_PH_RANGE", "Program-header table extends beyond file", static_cast<std::size_t>(std::min<std::uint64_t>(phoff, image.size())));
+            return info;
+        }
+        for (std::uint16_t i = 0; i < phnum; ++i) {
+            const auto p = static_cast<std::size_t>(phoff + static_cast<std::uint64_t>(i) * phentsize);
+            const auto type = view.u32le(p);
+            if (!type) { diag(info, "ELF_PH_TRUNCATED", "Program header is truncated", p); break; }
+            if (*type != 1) continue; // PT_LOAD
+            std::uint64_t fileOffset = 0, address = 0, fileSize = 0, memorySize = 0;
+            std::uint32_t flags = 0;
+            if (info.is64Bit) {
+                flags = view.u32le(p + 4).value_or(0);
+                fileOffset = view.u64le(p + 8).value_or(0);
+                address = view.u64le(p + 16).value_or(0);
+                fileSize = view.u64le(p + 32).value_or(0);
+                memorySize = view.u64le(p + 40).value_or(0);
+            } else {
+                fileOffset = view.u32le(p + 4).value_or(0);
+                address = view.u32le(p + 8).value_or(0);
+                fileSize = view.u32le(p + 16).value_or(0);
+                memorySize = view.u32le(p + 20).value_or(0);
+                flags = view.u32le(p + 24).value_or(0);
+            }
+            if (fileSize > memorySize)
+                diag(info, "ELF_LOAD_SIZE_INVALID", "PT_LOAD p_filesz exceeds p_memsz", p);
+            if (!rangeFits(fileOffset, fileSize, image.size()))
+                diag(info, "ELF_LOAD_FILE_RANGE", "PT_LOAD file range extends beyond file", p);
+            info.sections.push_back({"LOAD", fileOffset, fileSize, address, memorySize, (flags & 1u) != 0});
+        }
+        info.valid = info.diagnostics.valid;
+        return info;
+    }
+
+    if (image.size() >= 4) {
+        const auto magic = view.u32le(0).value_or(0);
+        if (magic == 0xfeedfacf || magic == 0xfeedface) {
+            info.format = Format::MachO;
+            info.is64Bit = magic == 0xfeedfacf;
+            const std::size_t headerSize = info.is64Bit ? 32 : 28;
+            if (!image.contains(0, headerSize)) {
+                diag(info, "MACHO_HEADER_TRUNCATED", "Mach-O header is truncated", 0);
+                return info;
+            }
+            const auto commandCount = view.u32le(16).value_or(0);
+            const auto commandBytes = view.u32le(20).value_or(0);
+            if (commandCount > 65536 || !rangeFits(headerSize, commandBytes, image.size())) {
+                diag(info, "MACHO_COMMAND_RANGE", "Mach-O load-command table is invalid or truncated", headerSize);
+                return info;
+            }
+            std::uint64_t cursor = headerSize;
+            const std::uint64_t commandEnd = cursor + commandBytes;
+            for (std::uint32_t i = 0; i < commandCount; ++i) {
+                if (!rangeFits(cursor, 8, static_cast<std::size_t>(commandEnd))) {
+                    diag(info, "MACHO_COMMAND_TRUNCATED", "Mach-O load command header is truncated", static_cast<std::size_t>(cursor));
+                    break;
+                }
+                const auto command = view.u32le(static_cast<std::size_t>(cursor)).value_or(0);
+                const auto size = view.u32le(static_cast<std::size_t>(cursor) + 4).value_or(0);
+                if (size < 8 || !rangeFits(cursor, size, static_cast<std::size_t>(commandEnd))) {
+                    diag(info, "MACHO_COMMAND_SIZE", "Mach-O load command has an invalid cmdsize", static_cast<std::size_t>(cursor));
+                    break;
+                }
+                const bool segment = (info.is64Bit && command == 0x19) || (!info.is64Bit && command == 1);
+                const std::size_t minimumSegmentSize = info.is64Bit ? 72 : 56;
+                if (segment) {
+                    if (size < minimumSegmentSize) {
+                        diag(info, "MACHO_SEGMENT_TRUNCATED", "Mach-O segment command is too small", static_cast<std::size_t>(cursor));
+                        break;
+                    }
+                    const auto base = static_cast<std::size_t>(cursor);
+                    const auto vmAddress = info.is64Bit ? view.u64le(base + 24).value_or(0) : view.u32le(base + 24).value_or(0);
+                    const auto vmSize = info.is64Bit ? view.u64le(base + 32).value_or(0) : view.u32le(base + 28).value_or(0);
+                    const auto fileOffset = info.is64Bit ? view.u64le(base + 40).value_or(0) : view.u32le(base + 32).value_or(0);
+                    const auto fileSize = info.is64Bit ? view.u64le(base + 48).value_or(0) : view.u32le(base + 36).value_or(0);
+                    const auto protection = view.u32le(base + (info.is64Bit ? 60 : 44)).value_or(0);
+                    if (!rangeFits(fileOffset, fileSize, image.size()))
+                        diag(info, "MACHO_SEGMENT_FILE_RANGE", "Mach-O segment file range extends beyond file", base);
+                    if (fileSize > vmSize)
+                        diag(info, "MACHO_SEGMENT_SIZE", "Mach-O segment filesize exceeds virtual size", base);
+                    info.sections.push_back({name8(image, base + 8), fileOffset, fileSize, vmAddress, vmSize, (protection & 4u) != 0});
+                }
+                cursor += size;
+            }
+            if (cursor != commandEnd)
+                diag(info, "MACHO_COMMAND_BYTES", "Mach-O command sizes do not match sizeofcmds", static_cast<std::size_t>(cursor));
+            info.valid = info.diagnostics.valid;
+            return info;
+        }
+    }
+
+    diag(info, "FORMAT_UNKNOWN", "Unrecognized or unsupported binary format", 0);
+    return info;
+}
+
+std::optional<std::uint64_t> rvaToOffset(const FormatInfo& info, std::uint64_t rva) {
+    if (info.format != Format::PE) return std::nullopt;
+    for (const auto& section : info.sections) {
+        const auto span = std::max(section.size, section.virtualSize);
+        if (rva < section.address || rva - section.address >= span) continue;
+        const auto delta = rva - section.address;
+        if (delta >= section.size || section.offset > std::numeric_limits<std::uint64_t>::max() - delta)
+            return std::nullopt;
+        return section.offset + delta;
+    }
+    return rva < 0x1000 ? std::optional<std::uint64_t>(rva) : std::nullopt;
+}
+
+std::optional<std::uint64_t> offsetToRva(const FormatInfo& info, std::uint64_t offset) {
+    for (const auto& section : info.sections) {
+        if (offset >= section.offset && offset - section.offset < section.size) {
+            const auto delta = offset - section.offset;
+            if (section.address > std::numeric_limits<std::uint64_t>::max() - delta) return std::nullopt;
+            return section.address + delta;
+        }
+    }
+    return offset < 0x1000 ? std::optional<std::uint64_t>(offset) : std::nullopt;
+}
+
+std::optional<std::uint64_t> vaToRva(const FormatInfo& info, std::uint64_t va) {
+    if (va < info.imageBase) return std::nullopt;
+    return va - info.imageBase;
+}
+
+std::vector<EmbeddedPayload> detectEmbeddedPayloads(const BinaryImage& image) {
+    std::vector<EmbeddedPayload> payloads;
+    const auto& bytes = image.bytes();
+    for (std::size_t i = 0; i + 4 <= bytes.size(); ++i) {
+        if (bytes[i] == 'M' && bytes[i + 1] == 'Z')
+            payloads.push_back({"PE", i});
+        else if (bytes[i] == 0x7f && bytes[i + 1] == 'E' && bytes[i + 2] == 'L' && bytes[i + 3] == 'F')
+            payloads.push_back({"ELF", i});
+        else if (bytes[i] == 0x50 && bytes[i + 1] == 0x4b && bytes[i + 2] == 3 && bytes[i + 3] == 4)
+            payloads.push_back({"ZIP", i});
+        else if (bytes[i] == 0x1f && bytes[i + 1] == 0x8b)
+            payloads.push_back({"GZIP", i});
+    }
+    return payloads;
+}
+
+} // namespace lulz::binary
