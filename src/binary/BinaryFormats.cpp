@@ -341,7 +341,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t externalRelocationOffset = 0, externalRelocationCount = 0;
             std::uint32_t localRelocationOffset = 0, localRelocationCount = 0;
             std::uint32_t indirectSymbolOffset = 0, indirectSymbolCount = 0;
-            std::uint32_t symbolTableOfContentsOffset = 0, symbolTableOfContentsCount = 0, moduleTableCount = 0;
+            std::uint32_t symbolTableOfContentsOffset = 0, symbolTableOfContentsCount = 0, moduleTableOffset = 0, moduleTableCount = 0;
+            std::uint32_t externalReferenceSymbolCount = 0;
             std::uint32_t localSymbolIndex = 0, localSymbolCount = 0;
             std::uint32_t externalSymbolIndex = 0, externalSymbolCount = 0;
             std::uint32_t undefinedSymbolIndex = 0, undefinedSymbolCount = 0;
@@ -490,7 +491,9 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     indirectSymbolCount = view.u32le(base + 60).value_or(0);
                     symbolTableOfContentsOffset = view.u32le(base + 32).value_or(0);
                     symbolTableOfContentsCount = view.u32le(base + 36).value_or(0);
+                    moduleTableOffset = view.u32le(base + 40).value_or(0);
                     moduleTableCount = view.u32le(base + 44).value_or(0);
+                    externalReferenceSymbolCount = view.u32le(base + 52).value_or(0);
                     externalRelocationOffset = view.u32le(base + 64).value_or(0);
                     externalRelocationCount = view.u32le(base + 68).value_or(0);
                     localRelocationOffset = view.u32le(base + 72).value_or(0);
@@ -605,6 +608,73 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             continue;
                         }
                         info.indirectSymbols.push_back(symbolIndex);
+                    }
+                }
+            }
+
+            if (hasDynamicSymbolTable) {
+                const std::uint64_t moduleEntrySize = info.is64Bit ? 56u : 52u;
+                const auto moduleTableBytes = static_cast<std::uint64_t>(moduleTableCount) * moduleEntrySize;
+                if (!rangeFits(moduleTableOffset, moduleTableBytes, image.size())) {
+                    diag(info, "MACHO_DYSYMTAB_MODULE_RANGE",
+                         "Mach-O dynamic symbol table module table extends beyond the file", moduleTableOffset);
+                } else {
+                    info.modules.reserve(moduleTableCount);
+                    for (std::uint32_t i = 0; i < moduleTableCount; ++i) {
+                        const auto entry = static_cast<std::size_t>(static_cast<std::uint64_t>(moduleTableOffset) + static_cast<std::uint64_t>(i) * moduleEntrySize);
+                        const auto nameIndex = view.u32le(entry).value_or(0);
+                        MachOModule module;
+                        module.externalSymbolIndex = view.u32le(entry + 4).value_or(0);
+                        module.externalSymbolCount = view.u32le(entry + 8).value_or(0);
+                        module.referenceSymbolIndex = view.u32le(entry + 12).value_or(0);
+                        module.referenceSymbolCount = view.u32le(entry + 16).value_or(0);
+                        module.localSymbolIndex = view.u32le(entry + 20).value_or(0);
+                        module.localSymbolCount = view.u32le(entry + 24).value_or(0);
+                        module.externalRelocationIndex = view.u32le(entry + 28).value_or(0);
+                        module.externalRelocationCount = view.u32le(entry + 32).value_or(0);
+                        const auto initTerm = view.u32le(entry + 36).value_or(0);
+                        module.initTermIndex = static_cast<std::uint16_t>(initTerm & 0xffffu);
+                        module.initTermCount = static_cast<std::uint16_t>(initTerm >> 16);
+                        module.objcModuleInfoSize = view.u32le(entry + 40).value_or(0);
+                        module.objcModuleInfoAddress = info.is64Bit ? view.u64le(entry + 44).value_or(0) : view.u32le(entry + 44).value_or(0);
+                        const auto validateRange = [&](std::uint32_t index, std::uint32_t count, std::uint32_t limit,
+                                                        const char* diagnosticCode, const char* message, std::size_t fieldOffset) {
+                            if (static_cast<std::uint64_t>(index) + count > limit) {
+                                diag(info, diagnosticCode, message, fieldOffset);
+                                return false;
+                            }
+                            return true;
+                        };
+                        bool valid = true;
+                        valid &= validateRange(module.externalSymbolIndex, module.externalSymbolCount, symbolCount,
+                            "MACHO_MODULE_EXT_SYMBOL_RANGE", "Mach-O module external symbol range exceeds LC_SYMTAB", entry + 4);
+                        valid &= validateRange(module.referenceSymbolIndex, module.referenceSymbolCount, externalReferenceSymbolCount,
+                            "MACHO_MODULE_REFERENCE_RANGE", "Mach-O module reference range exceeds the external reference table", entry + 12);
+                        valid &= validateRange(module.localSymbolIndex, module.localSymbolCount, symbolCount,
+                            "MACHO_MODULE_LOCAL_SYMBOL_RANGE", "Mach-O module local symbol range exceeds LC_SYMTAB", entry + 20);
+                        valid &= validateRange(module.externalRelocationIndex, module.externalRelocationCount, externalRelocationCount,
+                            "MACHO_MODULE_EXT_RELOC_RANGE", "Mach-O module external relocation range exceeds LC_DYSYMTAB", entry + 28);
+                        if (nameIndex >= stringSize) {
+                            diag(info, "MACHO_MODULE_NAME_INDEX", "Mach-O module name index exceeds the string table", entry);
+                            valid = false;
+                        } else if (rangeFits(stringOffset, stringSize, image.size())) {
+                            const auto nameStart = static_cast<std::uint64_t>(stringOffset) + nameIndex;
+                            const auto nameEnd = static_cast<std::uint64_t>(stringOffset) + stringSize;
+                            bool terminated = false;
+                            for (auto pos = nameStart; pos < nameEnd; ++pos) {
+                                const auto ch = bytes[static_cast<std::size_t>(pos)];
+                                if (ch == 0) { terminated = true; break; }
+                                module.name.push_back(static_cast<char>(ch));
+                            }
+                            if (!terminated) {
+                                diag(info, "MACHO_MODULE_NAME_UNTERMINATED", "Mach-O module name is not NUL-terminated", entry);
+                                valid = false;
+                            }
+                        } else {
+                            diag(info, "MACHO_MODULE_STRING_TABLE_RANGE", "Mach-O module name cannot be read because the string table is invalid", entry);
+                            valid = false;
+                        }
+                        if (valid) info.modules.push_back(std::move(module));
                     }
                 }
             }

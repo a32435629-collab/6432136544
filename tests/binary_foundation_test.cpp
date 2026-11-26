@@ -117,6 +117,23 @@ std::vector<std::uint8_t> makeMachO64WithTOC() {
     put32(b, 0x1ac, 0); // symbol index
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithModuleTable() {
+    auto b = makeMachO64WithTOC();
+    const std::size_t dysymtab = 32 + 152 + 24 + 24;
+    put32(b, dysymtab + 40, 0x1b0);
+    put32(b, dysymtab + 44, 1);
+    put32(b, dysymtab + 52, 1);
+    put32(b, 0x1b0, 5);
+    put32(b, 0x1b4, 0); put32(b, 0x1b8, 1);
+    put32(b, 0x1bc, 0); put32(b, 0x1c0, 1);
+    put32(b, 0x1c4, 0); put32(b, 0x1c8, 1);
+    put32(b, 0x1cc, 0); put32(b, 0x1d0, 0);
+    put32(b, 0x1d4, 0);
+    put32(b, 0x1d8, 0);
+    put64(b, 0x1dc, 0);
+    b[0x195] = 'm'; b[0x196] = 'o'; b[0x197] = 'd'; b[0x198] = 0;
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64WithSectionRelocation() {
     auto b = makeMachO64WithSymtab();
     const std::size_t section = 32 + 72;
@@ -417,6 +434,34 @@ int main() {
     for (const auto& diagnostic : badMachODynamicSymbolRange.diagnostics.diagnostics)
         if (diagnostic.code == "MACHO_DYSYMTAB_EXTERNAL_SYMBOL_RANGE") foundDynamicSymbolRange = true;
     assert(foundDynamicSymbolRange);
+
+    auto machoModuleTable = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithModuleTable()));
+    assert(machoModuleTable.format == Format::MachO && machoModuleTable.valid);
+    assert(machoModuleTable.modules.size() == 1);
+    assert(machoModuleTable.modules[0].name == "mod");
+    assert(machoModuleTable.modules[0].externalSymbolCount == 1);
+    assert(machoModuleTable.modules[0].referenceSymbolCount == 1);
+    assert(machoModuleTable.modules[0].localSymbolCount == 1);
+
+    auto badMachOModuleRangeBytes = makeMachO64WithModuleTable();
+    const std::size_t moduleDysymtab = 32 + 152 + 24 + 24;
+    put32(badMachOModuleRangeBytes, moduleDysymtab + 40, 0x1f0);
+    auto badMachOModuleRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOModuleRangeBytes)));
+    assert(!badMachOModuleRange.valid);
+    bool foundModuleRange = false;
+    for (const auto& diagnostic : badMachOModuleRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_DYSYMTAB_MODULE_RANGE") foundModuleRange = true;
+    assert(foundModuleRange);
+
+    auto badMachOModuleSymbolBytes = makeMachO64WithModuleTable();
+    put32(badMachOModuleSymbolBytes, 0x1b8, 2);
+    auto badMachOModuleSymbol = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOModuleSymbolBytes)));
+    assert(!badMachOModuleSymbol.valid);
+
+    auto badMachOModuleNameBytes = makeMachO64WithModuleTable();
+    put32(badMachOModuleNameBytes, 0x1b0, 0xffffffffu);
+    auto badMachOModuleName = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOModuleNameBytes)));
+    assert(!badMachOModuleName.valid);
 
     auto machoTOC = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithTOC()));
     assert(machoTOC.format == Format::MachO && machoTOC.valid);
