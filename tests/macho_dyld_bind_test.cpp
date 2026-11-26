@@ -102,6 +102,14 @@ std::vector<std::uint8_t> makeFatImage(const std::vector<std::uint8_t>& thin) {
     return b;
 }
 
+std::vector<std::uint8_t> makeBigEndianMachO() {
+    std::vector<std::uint8_t> b(32);
+    b[0]=0xfe; b[1]=0xed; b[2]=0xfa; b[3]=0xce;
+    const auto put=[&](std::size_t o,std::uint32_t v){ b[o]=static_cast<std::uint8_t>(v>>24); b[o+1]=static_cast<std::uint8_t>(v>>16); b[o+2]=static_cast<std::uint8_t>(v>>8); b[o+3]=static_cast<std::uint8_t>(v); };
+    put(4,7); put(8,3); put(12,2); put(16,0); put(20,0); put(24,0); put(28,0);
+    return b;
+}
+
 bool hasDiagnostic(const lulz::binary::FormatInfo& info, const char* code) {
     for(const auto& d:info.diagnostics.diagnostics) if(d.code==code) return true;
     return false;
@@ -144,6 +152,9 @@ int main() {
     assert(bound.binds[0].addend==-1);
     assert(bound.binds[0].segmentIndex==0 && bound.binds[0].segmentOffset==0x80);
     assert(bound.binds[0].address==0x100000080ull && bound.binds[0].fileOffset==0x80);
+    assert(bound.machoLinkage.size() == 1);
+    assert(bound.machoLinkage[0].kind == MachOLinkageKind::BindToExport);
+    assert(!bound.machoLinkage[0].resolved);
 
     auto badSymbol=analyzeFormat(BinaryImage::fromBytes(makeImage({0x40,'x','y'},true)));
     assert(!badSymbol.valid && hasDiagnostic(badSymbol,"MACHO_BIND_OPCODE"));
@@ -229,6 +240,18 @@ int main() {
     malformedFat[19] = 0xff;
     auto badFat = analyzeFormat(BinaryImage::fromBytes(malformedFat));
     assert(!badFat.valid && hasDiagnostic(badFat, "MACHO_FAT_SLICE_RANGE"));
+
+    auto bigEndian = analyzeFormat(BinaryImage::fromBytes(makeBigEndianMachO()));
+    assert(bigEndian.format == Format::MachO && bigEndian.valid);
+    assert(bigEndian.isBigEndian && !bigEndian.is64Bit && bigEndian.architecture == 7);
+    auto wrongCpuClass = makeBigEndianMachO();
+    wrongCpuClass[4]=0x01; wrongCpuClass[5]=0x00; wrongCpuClass[6]=0x00; wrongCpuClass[7]=0x07;
+    auto badClass = analyzeFormat(BinaryImage::fromBytes(wrongCpuClass));
+    assert(!badClass.valid && hasDiagnostic(badClass, "MACHO_CPU_CLASS_MISMATCH"));
+    auto truncatedFixups = makeChainedImage(false);
+    put32(truncatedFixups, 32 + 152 + 8, 0x2f0);
+    auto badFixupsRange = analyzeFormat(BinaryImage::fromBytes(truncatedFixups));
+    assert(!badFixupsRange.valid && hasDiagnostic(badFixupsRange, "MACHO_CHAINED_DATA_RANGE"));
 
     return 0;
 }

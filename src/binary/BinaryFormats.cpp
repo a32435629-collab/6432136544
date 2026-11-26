@@ -365,7 +365,9 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         bytes.begin() + static_cast<std::ptrdiff_t>(arch.offset + arch.size));
                     const bool thinMagic = sliceBytes.size() >= 4 &&
                         ((sliceBytes[0] == 0xcf && sliceBytes[1] == 0xfa && sliceBytes[2] == 0xed && sliceBytes[3] == 0xfe) ||
-                         (sliceBytes[0] == 0xce && sliceBytes[1] == 0xfa && sliceBytes[2] == 0xed && sliceBytes[3] == 0xfe));
+                         (sliceBytes[0] == 0xce && sliceBytes[1] == 0xfa && sliceBytes[2] == 0xed && sliceBytes[3] == 0xfe) ||
+                         (sliceBytes[0] == 0xfe && sliceBytes[1] == 0xed && sliceBytes[2] == 0xfa && sliceBytes[3] == 0xcf) ||
+                         (sliceBytes[0] == 0xfe && sliceBytes[1] == 0xed && sliceBytes[2] == 0xfa && sliceBytes[3] == 0xce));
                     FormatInfo sliceInfo;
                     if (thinMagic)
                         sliceInfo = analyzeFormat(BinaryImage::fromBytes(std::move(sliceBytes), image.source()));
@@ -386,21 +388,33 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
     }
 
     if (image.size() >= 4) {
-        const auto magic = view.u32le(0).value_or(0);
-        if (magic == 0xfeedfacf || magic == 0xfeedface) {
+        const auto rawMagic = readU32(0).value_or(0);
+        info.isBigEndian = rawMagic == 0xcefaedfeu || rawMagic == 0xcffaedfeu;
+        const auto readU16 = [&](std::size_t p) { return info.isBigEndian ? view.u16be(p) : view.u16le(p); };
+        const auto readU32 = [&](std::size_t p) { return info.isBigEndian ? view.u32be(p) : view.u32le(p); };
+        const auto readU64 = [&](std::size_t p) { return info.isBigEndian ? view.u64be(p) : view.u64le(p); };
+        const auto readI32 = [&](std::size_t p) { return info.isBigEndian ? view.i32be(p) : view.i32le(p); };
+        const auto readI64 = [&](std::size_t p) { return info.isBigEndian ? view.i64be(p) : view.i64le(p); };
+        const auto magic = info.isBigEndian ? view.u32be(0).value_or(0) : rawMagic;
+        if (magic == 0xfeedfacfu || magic == 0xfeedfaceu) {
             info.format = Format::MachO;
-            info.is64Bit = magic == 0xfeedfacf;
+            info.is64Bit = magic == 0xfeedfacfu;
             const std::size_t headerSize = info.is64Bit ? 32 : 28;
             if (!image.contains(0, headerSize)) {
                 diag(info, "MACHO_HEADER_TRUNCATED", "Mach-O header is truncated", 0);
                 return info;
             }
-            info.architecture = view.u32le(4).value_or(0);
-            info.architectureSubtype = view.u32le(8).value_or(0);
-            info.fileType = view.u32le(12).value_or(0);
-            const auto commandCount = view.u32le(16).value_or(0);
-            const auto commandBytes = view.u32le(20).value_or(0);
-            if (commandCount > 65536 || !rangeFits(headerSize, commandBytes, image.size())) {
+            info.architecture = readU32(4).value_or(0);
+            info.architectureSubtype = readU32(8).value_or(0);
+            info.fileType = readU32(12).value_or(0);
+            constexpr std::uint32_t CPU_ARCH_ABI64 = 0x01000000u;
+            const bool cpuIs64 = (info.architecture & CPU_ARCH_ABI64) != 0;
+            const bool knownCpu = info.architecture == 7u || info.architecture == 12u || info.architecture == 18u || info.architecture == 0x01000007u || info.architecture == 0x0100000cu || info.architecture == 0x01000012u;
+            if (knownCpu && cpuIs64 != info.is64Bit)
+                diag(info, "MACHO_CPU_CLASS_MISMATCH", "Mach-O CPU type bitness does not match the Mach-O header class", 4);
+            const auto commandCount = readU32(16).value_or(0);
+            const auto commandBytes = readU32(20).value_or(0);
+            if (commandCount > 16384 || !rangeFits(headerSize, commandBytes, image.size())) {
                 diag(info, "MACHO_COMMAND_RANGE", "Mach-O load-command table is invalid or truncated", headerSize);
                 return info;
             }
@@ -436,8 +450,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     diag(info, "MACHO_COMMAND_TRUNCATED", "Mach-O load command header is truncated", static_cast<std::size_t>(cursor));
                     break;
                 }
-                const auto command = view.u32le(static_cast<std::size_t>(cursor)).value_or(0);
-                const auto size = view.u32le(static_cast<std::size_t>(cursor) + 4).value_or(0);
+                const auto command = readU32(static_cast<std::size_t>(cursor)).value_or(0);
+                const auto size = readU32(static_cast<std::size_t>(cursor) + 4).value_or(0);
                 const std::uint32_t commandAlignment = info.is64Bit ? 8u : 4u;
                 if (size < 8 || (size % commandAlignment) != 0 ||
                     !rangeFits(cursor, size, static_cast<std::size_t>(commandEnd))) {
@@ -452,13 +466,13 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     const auto base = static_cast<std::size_t>(cursor);
-                    const auto vmAddress = info.is64Bit ? view.u64le(base + 24).value_or(0) : view.u32le(base + 24).value_or(0);
-                    const auto vmSize = info.is64Bit ? view.u64le(base + 32).value_or(0) : view.u32le(base + 28).value_or(0);
-                    const auto fileOffset = info.is64Bit ? view.u64le(base + 40).value_or(0) : view.u32le(base + 32).value_or(0);
-                    const auto fileSize = info.is64Bit ? view.u64le(base + 48).value_or(0) : view.u32le(base + 36).value_or(0);
-                    const auto maxProtection = view.u32le(base + (info.is64Bit ? 56 : 40)).value_or(0);
-                    const auto protection = view.u32le(base + (info.is64Bit ? 60 : 44)).value_or(0);
-                    const auto sectionCount = view.u32le(base + (info.is64Bit ? 64 : 48)).value_or(0);
+                    const auto vmAddress = info.is64Bit ? readU64(base + 24).value_or(0) : readU32(base + 24).value_or(0);
+                    const auto vmSize = info.is64Bit ? readU64(base + 32).value_or(0) : readU32(base + 28).value_or(0);
+                    const auto fileOffset = info.is64Bit ? readU64(base + 40).value_or(0) : readU32(base + 32).value_or(0);
+                    const auto fileSize = info.is64Bit ? readU64(base + 48).value_or(0) : readU32(base + 36).value_or(0);
+                    const auto maxProtection = readU32(base + (info.is64Bit ? 56 : 40)).value_or(0);
+                    const auto protection = readU32(base + (info.is64Bit ? 60 : 44)).value_or(0);
+                    const auto sectionCount = readU32(base + (info.is64Bit ? 64 : 48)).value_or(0);
                     const std::uint64_t sectionEntrySize = info.is64Bit ? 80u : 68u;
                     const std::uint64_t sectionTableBytes = static_cast<std::uint64_t>(sectionCount) * sectionEntrySize;
                     if (sectionCount > (std::numeric_limits<std::uint64_t>::max() - minimumSegmentSize) / sectionEntrySize ||
@@ -485,13 +499,13 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         const auto sectionBase = base + static_cast<std::size_t>(minimumSegmentSize +
                             static_cast<std::uint64_t>(sectionIndex) * sectionEntrySize);
                         const auto sectionAddress = info.is64Bit
-                            ? view.u64le(sectionBase + 32).value_or(0)
-                            : view.u32le(sectionBase + 32).value_or(0);
+                            ? readU64(sectionBase + 32).value_or(0)
+                            : readU32(sectionBase + 32).value_or(0);
                         const auto sectionSize = info.is64Bit
-                            ? view.u64le(sectionBase + 40).value_or(0)
-                            : view.u32le(sectionBase + 36).value_or(0);
-                        const auto sectionFileOffset = view.u32le(sectionBase + (info.is64Bit ? 48 : 40)).value_or(0);
-                        const auto sectionFlags = view.u32le(sectionBase + (info.is64Bit ? 64 : 56)).value_or(0);
+                            ? readU64(sectionBase + 40).value_or(0)
+                            : readU32(sectionBase + 36).value_or(0);
+                        const auto sectionFileOffset = readU32(sectionBase + (info.is64Bit ? 48 : 40)).value_or(0);
+                        const auto sectionFlags = readU32(sectionBase + (info.is64Bit ? 64 : 56)).value_or(0);
                         const auto sectionType = sectionFlags & 0xffu;
                         if (sectionType == 0x9u || sectionType == 0xau) { // S_MOD_INIT_FUNC_POINTERS / S_MOD_TERM_FUNC_POINTERS
                             const std::uint64_t pointerSize = info.is64Bit ? 8u : 4u;
@@ -510,8 +524,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                     const auto pointerFileOffset = static_cast<std::size_t>(
                                         static_cast<std::uint64_t>(sectionFileOffset) + pointerOffset);
                                     const auto target = info.is64Bit
-                                        ? view.u64le(pointerFileOffset).value_or(0)
-                                        : view.u32le(pointerFileOffset).value_or(0);
+                                        ? readU64(pointerFileOffset).value_or(0)
+                                        : readU32(pointerFileOffset).value_or(0);
                                     if (target == 0) {
                                         diag(info, "MACHO_INIT_TERM_NULL_TARGET",
                                              "Mach-O init/term pointer entry is null", pointerFileOffset);
@@ -529,8 +543,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                 }
                             }
                         }
-                        const auto relocationOffset = view.u32le(sectionBase + (info.is64Bit ? 56 : 48)).value_or(0);
-                        const auto relocationCount = view.u32le(sectionBase + (info.is64Bit ? 60 : 52)).value_or(0);
+                        const auto relocationOffset = readU32(sectionBase + (info.is64Bit ? 56 : 48)).value_or(0);
+                        const auto relocationCount = readU32(sectionBase + (info.is64Bit ? 60 : 52)).value_or(0);
                         if (relocationCount != 0)
                             sectionRelocationTables.push_back({relocationOffset, relocationCount, sectionSize, sectionBase});
                     }
@@ -553,8 +567,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                 diag(info, "MACHO_UNIXTHREAD_FLAVOR_TRUNCATED", "LC_UNIXTHREAD flavor/count header is truncated", static_cast<std::size_t>(stateCursor));
                                 break;
                             }
-                            const auto flavor = view.u32le(static_cast<std::size_t>(stateCursor)).value_or(0);
-                            const auto count = view.u32le(static_cast<std::size_t>(stateCursor) + 4).value_or(0);
+                            const auto flavor = readU32(static_cast<std::size_t>(stateCursor)).value_or(0);
+                            const auto count = readU32(static_cast<std::size_t>(stateCursor) + 4).value_or(0);
                             const std::uint64_t stateBytes = static_cast<std::uint64_t>(count) * 4u;
                             const std::uint64_t stateData = stateCursor + 8;
                             if (!rangeFits(stateData, stateBytes, static_cast<std::size_t>(stateEnd))) {
@@ -572,7 +586,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                     break;
                                 }
                                 // x86_thread_state64_t.rip is the 17th 64-bit register.
-                                unixThreadEntryPoint = view.u64le(static_cast<std::size_t>(stateData) + 16u * 8u).value_or(0);
+                                unixThreadEntryPoint = readU64(static_cast<std::size_t>(stateData) + 16u * 8u).value_or(0);
                             }
                             stateCursor = stateData + stateBytes;
                         }
@@ -590,10 +604,10 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     hasSymbolTableCommand = true;
-                    symbolOffset = view.u32le(base + 8).value_or(0);
-                    symbolCount = view.u32le(base + 12).value_or(0);
-                    stringOffset = view.u32le(base + 16).value_or(0);
-                    stringSize = view.u32le(base + 20).value_or(0);
+                    symbolOffset = readU32(base + 8).value_or(0);
+                    symbolCount = readU32(base + 12).value_or(0);
+                    stringOffset = readU32(base + 16).value_or(0);
+                    stringSize = readU32(base + 20).value_or(0);
                 } else if (command == 0xbu) { // LC_DYSYMTAB
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 80) {
@@ -605,24 +619,24 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     hasDynamicSymbolTable = true;
-                    localSymbolIndex = view.u32le(base + 8).value_or(0);
-                    localSymbolCount = view.u32le(base + 12).value_or(0);
-                    externalSymbolIndex = view.u32le(base + 16).value_or(0);
-                    externalSymbolCount = view.u32le(base + 20).value_or(0);
-                    undefinedSymbolIndex = view.u32le(base + 24).value_or(0);
-                    undefinedSymbolCount = view.u32le(base + 28).value_or(0);
-                    indirectSymbolOffset = view.u32le(base + 56).value_or(0);
-                    indirectSymbolCount = view.u32le(base + 60).value_or(0);
-                    symbolTableOfContentsOffset = view.u32le(base + 32).value_or(0);
-                    symbolTableOfContentsCount = view.u32le(base + 36).value_or(0);
-                    moduleTableOffset = view.u32le(base + 40).value_or(0);
-                    moduleTableCount = view.u32le(base + 44).value_or(0);
-                    externalReferenceSymbolOffset = view.u32le(base + 48).value_or(0);
-                    externalReferenceSymbolCount = view.u32le(base + 52).value_or(0);
-                    externalRelocationOffset = view.u32le(base + 64).value_or(0);
-                    externalRelocationCount = view.u32le(base + 68).value_or(0);
-                    localRelocationOffset = view.u32le(base + 72).value_or(0);
-                    localRelocationCount = view.u32le(base + 76).value_or(0);
+                    localSymbolIndex = readU32(base + 8).value_or(0);
+                    localSymbolCount = readU32(base + 12).value_or(0);
+                    externalSymbolIndex = readU32(base + 16).value_or(0);
+                    externalSymbolCount = readU32(base + 20).value_or(0);
+                    undefinedSymbolIndex = readU32(base + 24).value_or(0);
+                    undefinedSymbolCount = readU32(base + 28).value_or(0);
+                    indirectSymbolOffset = readU32(base + 56).value_or(0);
+                    indirectSymbolCount = readU32(base + 60).value_or(0);
+                    symbolTableOfContentsOffset = readU32(base + 32).value_or(0);
+                    symbolTableOfContentsCount = readU32(base + 36).value_or(0);
+                    moduleTableOffset = readU32(base + 40).value_or(0);
+                    moduleTableCount = readU32(base + 44).value_or(0);
+                    externalReferenceSymbolOffset = readU32(base + 48).value_or(0);
+                    externalReferenceSymbolCount = readU32(base + 52).value_or(0);
+                    externalRelocationOffset = readU32(base + 64).value_or(0);
+                    externalRelocationCount = readU32(base + 68).value_or(0);
+                    localRelocationOffset = readU32(base + 72).value_or(0);
+                    localRelocationCount = readU32(base + 76).value_or(0);
                 } else if (command == 0x16u) { // LC_TWOLEVEL_HINTS
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 16) {
@@ -636,8 +650,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     hasTwoLevelHintsCommand = true;
-                    twoLevelHintsOffset = view.u32le(base + 8).value_or(0);
-                    twoLevelHintsCount = view.u32le(base + 12).value_or(0);
+                    twoLevelHintsOffset = readU32(base + 8).value_or(0);
+                    twoLevelHintsCount = readU32(base + 12).value_or(0);
                 } else if (command == 0x22u || command == 0x80000022u) { // LC_DYLD_INFO / LC_DYLD_INFO_ONLY
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 48) {
@@ -652,7 +666,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     }
                     hasDyldInfoCommand = true;
                     for (std::size_t field = 0; field < dyldStreamFields.size(); ++field)
-                        dyldStreamFields[field] = view.u32le(base + 8 + field * 4).value_or(0);
+                        dyldStreamFields[field] = readU32(base + 8 + field * 4).value_or(0);
                 } else if (command == 0x80000034u) { // LC_DYLD_CHAINED_FIXUPS
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 16) {
@@ -664,8 +678,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     hasChainedFixupsCommand = true;
-                    chainedFixupsOffset = view.u32le(base + 8).value_or(0);
-                    chainedFixupsSize = view.u32le(base + 12).value_or(0);
+                    chainedFixupsOffset = readU32(base + 8).value_or(0);
+                    chainedFixupsSize = readU32(base + 12).value_or(0);
                 } else if (command == 0x1du) { // LC_CODE_SIGNATURE
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 16) {
@@ -679,8 +693,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     hasCodeSignatureCommand = true;
-                    codeSignatureOffset = view.u32le(base + 8).value_or(0);
-                    codeSignatureSize = view.u32le(base + 12).value_or(0);
+                    codeSignatureOffset = readU32(base + 8).value_or(0);
+                    codeSignatureSize = readU32(base + 12).value_or(0);
                 } else if (command == 0x80000028u) { // LC_MAIN
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 24) {
@@ -692,8 +706,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         break;
                     }
                     hasMainCommand = true;
-                    info.entryFileOffset = view.u64le(base + 8).value_or(0);
-                    info.entryStackSize = view.u64le(base + 16).value_or(0);
+                    info.entryFileOffset = readU64(base + 8).value_or(0);
+                    info.entryStackSize = readU64(base + 16).value_or(0);
                     if (!rangeFits(info.entryFileOffset, 1, image.size())) {
                         diag(info, "MACHO_MAIN_FILE_RANGE", "LC_MAIN entryoff is outside the file", base + 8);
                     }
@@ -1204,13 +1218,13 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     for (std::uint32_t i = 0; i < symbolCount; ++i) {
                         const auto entry = static_cast<std::size_t>(
                             static_cast<std::uint64_t>(symbolOffset) + static_cast<std::uint64_t>(i) * symbolEntrySize);
-                        const auto stringIndex = view.u32le(entry).value_or(0);
+                        const auto stringIndex = readU32(entry).value_or(0);
                         const auto symbolType = view.u8(entry + 4).value_or(0);
                         const auto sectionIndex = view.u8(entry + 5).value_or(0);
-                        const auto description = view.u16le(entry + 6).value_or(0);
+                        const auto description = readU16(entry + 6).value_or(0);
                         const std::uint64_t value = info.is64Bit
-                            ? view.u64le(entry + 8).value_or(0)
-                            : view.u32le(entry + 8).value_or(0);
+                            ? readU64(entry + 8).value_or(0)
+                            : readU32(entry + 8).value_or(0);
 
                         std::string symbolName;
                         if (stringIndex != 0) {
@@ -1251,7 +1265,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         const auto entry = static_cast<std::size_t>(
                             static_cast<std::uint64_t>(twoLevelHintsOffset) +
                             static_cast<std::uint64_t>(i) * hintEntrySize);
-                        const auto raw = view.u32le(entry).value_or(0);
+                        const auto raw = readU32(entry).value_or(0);
                         const auto subImage = static_cast<std::uint8_t>(raw >> 24);
                         const auto tocIndex = raw & 0x00ffffffu;
                         if (subImage == 0 && tocIndex >= symbolTableOfContentsCount) {
@@ -1265,6 +1279,10 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             }
 
 
+            if (hasChainedFixupsCommand && info.isBigEndian) {
+                diag(info, "MACHO_CHAINED_BIG_ENDIAN_UNSUPPORTED", "Chained fixups are not supported for big-endian Mach-O images", chainedFixupsOffset);
+                hasChainedFixupsCommand = false;
+            }
             if (hasChainedFixupsCommand) {
                 constexpr std::size_t headerSize = 28;
                 if (chainedFixupsSize < headerSize ||
@@ -1274,7 +1292,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     const std::uint64_t payload = chainedFixupsOffset;
                     const std::uint64_t payloadEnd = payload + chainedFixupsSize;
                     const auto u32 = [&](std::uint64_t off) -> std::uint32_t {
-                        return view.u32le(static_cast<std::size_t>(off)).value_or(0);
+                        return readU32(static_cast<std::size_t>(off)).value_or(0);
                     };
                     const auto version = u32(payload);
                     const auto startsOffset = u32(payload + 4);
@@ -1309,13 +1327,13 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                     imp.libraryOrdinal = static_cast<std::int8_t>(raw & 0xffu);
                                     imp.weak = ((raw >> 8) & 1u) != 0;
                                     nameOffset = raw >> 9;
-                                    if (importsFormat == 2) imp.addend = view.i32le(static_cast<std::size_t>(entry + 4)).value_or(0);
+                                    if (importsFormat == 2) imp.addend = readI32(static_cast<std::size_t>(entry + 4)).value_or(0);
                                 } else {
-                                    const auto raw = view.u64le(static_cast<std::size_t>(entry)).value_or(0);
+                                    const auto raw = readU64(static_cast<std::size_t>(entry)).value_or(0);
                                     imp.libraryOrdinal = static_cast<std::int16_t>(raw & 0xffffu);
                                     imp.weak = ((raw >> 16) & 1u) != 0;
                                     nameOffset = static_cast<std::uint32_t>(raw >> 32);
-                                    imp.addend = view.i64le(static_cast<std::size_t>(entry + 8)).value_or(0);
+                                    imp.addend = readI64(static_cast<std::size_t>(entry + 8)).value_or(0);
                                 }
                                 const auto nameAt = payload + symbolsOffset + nameOffset;
                                 if (nameAt < payload + symbolsOffset || nameAt >= symbolPoolEnd) {
@@ -1350,14 +1368,14 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                             continue;
                                         }
                                         const auto structSize = u32(segInfo);
-                                        const auto pageSize = view.u16le(static_cast<std::size_t>(segInfo + 4)).value_or(0);
-                                        const auto pointerFormat = view.u16le(static_cast<std::size_t>(segInfo + 6)).value_or(0);
-                                        const auto segmentOffset = view.u64le(static_cast<std::size_t>(segInfo + 8)).value_or(0);
-                                        const auto pageCount = view.u16le(static_cast<std::size_t>(segInfo + 20)).value_or(0);
+                                        const auto pageSize = readU16(static_cast<std::size_t>(segInfo + 4)).value_or(0);
+                                        const auto pointerFormat = readU16(static_cast<std::size_t>(segInfo + 6)).value_or(0);
+                                        const auto segmentOffset = readU64(static_cast<std::size_t>(segInfo + 8)).value_or(0);
+                                        const auto pageCount = readU16(static_cast<std::size_t>(segInfo + 20)).value_or(0);
                                         if (structSize < 22u + static_cast<std::uint64_t>(pageCount) * 2u ||
                                             !rangeFits(segInfo, structSize, static_cast<std::size_t>(payloadEnd)) ||
                                             pageSize == 0 || (pageSize & (pageSize - 1u)) != 0 ||
-                                            pageCount > 32768 || segmentOffset != machoSegments[segIndex].address - info.imageBase && info.imageBase != 0) {
+                                            pageCount > 32768) {
                                             diag(info, "MACHO_CHAINED_SEGMENT_INFO", "Chained-fixups segment-starts metadata is invalid", static_cast<std::size_t>(segInfo));
                                             continue;
                                         }
@@ -1392,7 +1410,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                                     diag(info, "MACHO_CHAINED_FILE_RANGE", "Chained pointer location is not backed by file data", static_cast<std::size_t>(fileLoc));
                                                     return;
                                                 }
-                                                const auto raw = view.u64le(static_cast<std::size_t>(fileLoc)).value_or(0);
+                                                const auto raw = readU64(static_cast<std::size_t>(fileLoc)).value_or(0);
                                                 const bool bind = ((raw >> 63) & 1u) != 0;
                                                 const auto next = static_cast<std::uint16_t>((raw >> 51) & 0xfffu);
                                                 MachOChainedFixupEntry fix;
@@ -1433,14 +1451,14 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                             diag(info, "MACHO_CHAINED_LOOP_LIMIT", "Chained pointer chain exceeds the safety limit", static_cast<std::size_t>(segInfo));
                                         };
                                         for (std::uint32_t page = 0; page < pageCount; ++page) {
-                                            const auto start = view.u16le(static_cast<std::size_t>(startsArray + page * 2u)).value_or(0xffffu);
+                                            const auto start = readU16(static_cast<std::size_t>(startsArray + page * 2u)).value_or(0xffffu);
                                             if (start == 0xffffu) continue;
                                             if ((start & 0x8000u) != 0) {
                                                 const auto overflowIndex = static_cast<std::uint32_t>(start & 0x7fffu);
                                                 const auto overflowBase = startsArray;
                                                 bool last = false;
                                                 for (std::uint32_t n = overflowIndex; n < structSize / 2u - 11u && !last; ++n) {
-                                                    const auto item = view.u16le(static_cast<std::size_t>(overflowBase + n * 2u));
+                                                    const auto item = readU16(static_cast<std::size_t>(overflowBase + n * 2u));
                                                     if (!item) break;
                                                     last = (*item & 0x8000u) != 0;
                                                     decodeChain(*item & 0x7fffu, page);
@@ -1526,7 +1544,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         const auto entry = static_cast<std::size_t>(
                             static_cast<std::uint64_t>(indirectSymbolOffset) +
                             static_cast<std::uint64_t>(i) * indirectSymbolEntrySize);
-                        const auto symbolIndex = view.u32le(entry).value_or(0);
+                        const auto symbolIndex = readU32(entry).value_or(0);
                         constexpr std::uint32_t INDIRECT_SYMBOL_LOCAL = 0x80000000u;
                         constexpr std::uint32_t INDIRECT_SYMBOL_ABS = 0x40000000u;
                         if ((symbolIndex & (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS)) == 0 &&
@@ -1552,7 +1570,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         const auto entry = static_cast<std::size_t>(
                             static_cast<std::uint64_t>(externalReferenceSymbolOffset) +
                             static_cast<std::uint64_t>(i) * externalReferenceEntrySize);
-                        const auto rawReference = view.u32le(entry).value_or(0);
+                        const auto rawReference = readU32(entry).value_or(0);
                         const auto symbolIndex = rawReference >> 8;
                         const auto flags = static_cast<std::uint8_t>(rawReference & 0xffu);
                         if (symbolIndex >= info.symbols.size()) {
@@ -1575,20 +1593,20 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     info.modules.reserve(moduleTableCount);
                     for (std::uint32_t i = 0; i < moduleTableCount; ++i) {
                         const auto entry = static_cast<std::size_t>(static_cast<std::uint64_t>(moduleTableOffset) + static_cast<std::uint64_t>(i) * moduleEntrySize);
-                        const auto nameIndex = view.u32le(entry).value_or(0);
+                        const auto nameIndex = readU32(entry).value_or(0);
                         MachOModule module;
-                        module.externalSymbolIndex = view.u32le(entry + 4).value_or(0);
-                        module.externalSymbolCount = view.u32le(entry + 8).value_or(0);
-                        module.referenceSymbolIndex = view.u32le(entry + 12).value_or(0);
-                        module.referenceSymbolCount = view.u32le(entry + 16).value_or(0);
-                        module.localSymbolIndex = view.u32le(entry + 20).value_or(0);
-                        module.localSymbolCount = view.u32le(entry + 24).value_or(0);
-                        module.externalRelocationIndex = view.u32le(entry + 28).value_or(0);
-                        module.externalRelocationCount = view.u32le(entry + 32).value_or(0);
-                        module.initTermIndex = view.u32le(entry + 36).value_or(0);
-                        module.initTermCount = view.u32le(entry + 40).value_or(0);
-                        module.objcModuleInfoSize = view.u32le(entry + 44).value_or(0);
-                        module.objcModuleInfoAddress = info.is64Bit ? view.u64le(entry + 48).value_or(0) : view.u32le(entry + 48).value_or(0);
+                        module.externalSymbolIndex = readU32(entry + 4).value_or(0);
+                        module.externalSymbolCount = readU32(entry + 8).value_or(0);
+                        module.referenceSymbolIndex = readU32(entry + 12).value_or(0);
+                        module.referenceSymbolCount = readU32(entry + 16).value_or(0);
+                        module.localSymbolIndex = readU32(entry + 20).value_or(0);
+                        module.localSymbolCount = readU32(entry + 24).value_or(0);
+                        module.externalRelocationIndex = readU32(entry + 28).value_or(0);
+                        module.externalRelocationCount = readU32(entry + 32).value_or(0);
+                        module.initTermIndex = readU32(entry + 36).value_or(0);
+                        module.initTermCount = readU32(entry + 40).value_or(0);
+                        module.objcModuleInfoSize = readU32(entry + 44).value_or(0);
+                        module.objcModuleInfoAddress = info.is64Bit ? readU64(entry + 48).value_or(0) : readU32(entry + 48).value_or(0);
                         const auto validateRange = [&](std::uint32_t index, std::uint32_t count, std::uint32_t limit,
                                                         const char* diagnosticCode, const char* message, std::size_t fieldOffset) {
                             if (static_cast<std::uint64_t>(index) + count > limit) {
@@ -1643,8 +1661,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         const auto entry = static_cast<std::size_t>(
                             static_cast<std::uint64_t>(symbolTableOfContentsOffset) +
                             static_cast<std::uint64_t>(i) * tocEntrySize);
-                        const auto moduleIndex = view.u32le(entry).value_or(0);
-                        const auto symbolIndex = view.u32le(entry + 4).value_or(0);
+                        const auto moduleIndex = readU32(entry).value_or(0);
+                        const auto symbolIndex = readU32(entry + 4).value_or(0);
                         if (moduleIndex >= moduleTableCount) {
                             diag(info, "MACHO_DYSYMTAB_TOC_MODULE_INDEX",
                                  "Mach-O TOC entry references a missing module-table entry", entry);
@@ -1672,8 +1690,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     for (std::uint32_t i = 0; i < count; ++i) {
                         const auto entry = static_cast<std::size_t>(
                             static_cast<std::uint64_t>(tableOffset) + static_cast<std::uint64_t>(i) * relocationEntrySize);
-                        const auto rawAddress = view.u32le(entry).value_or(0);
-                        const auto word = view.u32le(entry + 4).value_or(0);
+                        const auto rawAddress = readU32(entry).value_or(0);
+                        const auto word = readU32(entry + 4).value_or(0);
                         Relocation relocation;
                         relocation.address = static_cast<std::int32_t>(rawAddress);
                         if ((rawAddress & 0x80000000u) != 0) {
@@ -1722,8 +1740,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     const auto entry = static_cast<std::size_t>(
                         static_cast<std::uint64_t>(table.offset) +
                         static_cast<std::uint64_t>(relocationIndex) * relocationEntrySize);
-                    const auto rawAddress = view.u32le(entry).value_or(0);
-                    const auto word = view.u32le(entry + 4).value_or(0);
+                    const auto rawAddress = readU32(entry).value_or(0);
+                    const auto word = readU32(entry + 4).value_or(0);
                     Relocation relocation;
                     relocation.address = static_cast<std::int32_t>(rawAddress);
                     if ((rawAddress & 0x80000000u) != 0) {
@@ -1791,6 +1809,28 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     diag(info, "MACHO_MAIN_NOT_EXECUTABLE",
                          "LC_MAIN entryoff is not backed by an executable segment",
                          static_cast<std::size_t>(std::min<std::uint64_t>(info.entryFileOffset, image.size())));
+            }
+            // Cross-link symbol-bearing tables by exact symbol name/index.
+            for (std::uint32_t i = 0; i < info.binds.size(); ++i) {
+                const auto& bind = info.binds[i];
+                const auto it = std::find_if(info.exports.begin(), info.exports.end(), [&](const MachOExportEntry& e) { return e.name == bind.symbolName; });
+                MachOLinkageReference ref; ref.kind = MachOLinkageKind::BindToExport; ref.sourceIndex = i; ref.resolved = it != info.exports.end();
+                if (ref.resolved) ref.targetIndex = static_cast<std::uint32_t>(std::distance(info.exports.begin(), it));
+                ref.symbolName = bind.symbolName; info.machoLinkage.push_back(std::move(ref));
+            }
+            for (std::uint32_t i = 0; i < info.chainedImports.size(); ++i) {
+                const auto& imp = info.chainedImports[i];
+                const auto it = std::find_if(info.symbols.begin(), info.symbols.end(), [&](const Symbol& s) { return s.name == imp.symbolName; });
+                MachOLinkageReference ref; ref.kind = MachOLinkageKind::ChainedImportToSymbol; ref.sourceIndex = i; ref.resolved = it != info.symbols.end();
+                if (ref.resolved) ref.targetIndex = static_cast<std::uint32_t>(std::distance(info.symbols.begin(), it));
+                ref.symbolName = imp.symbolName; info.machoLinkage.push_back(std::move(ref));
+            }
+            for (std::uint32_t i = 0; i < info.relocations.size(); ++i) {
+                const auto& relocation = info.relocations[i]; if (!relocation.external) continue;
+                MachOLinkageReference ref; ref.kind = MachOLinkageKind::RelocationToSymbol; ref.sourceIndex = i;
+                ref.resolved = relocation.symbolNumber < info.symbols.size();
+                if (ref.resolved) { ref.targetIndex = relocation.symbolNumber; ref.symbolName = info.symbols[relocation.symbolNumber].name; }
+                info.machoLinkage.push_back(std::move(ref));
             }
             info.valid = info.diagnostics.valid;
             return info;
