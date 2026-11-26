@@ -671,36 +671,36 @@ int main(int argc, char** argv) {
 
         if (formatInfo.format != lulz::binary::Format::PE) {
             if (formatInfo.format == lulz::binary::Format::Unknown) {
-                std::cerr << "Unsupported or unrecognized binary format\\n";
+                std::cerr << "Unsupported or unrecognized binary format\n";
                 return 2;
             }
             const std::string report = genericAnalysisJson(formatInfo, bytes, filePath);
             if (jsonOutput) {
                 if (argc >= 5) {
                     if (!writeTextFile(argv[4], report)) {
-                        std::cerr << "Cannot write JSON output: " << argv[4] << '\\n';
+                        std::cerr << "Cannot write JSON output: " << argv[4] << '\n';
                         return 1;
                     }
-                    std::cout << "JSON report written: " << argv[4] << '\\n';
+                    std::cout << "JSON report written: " << argv[4] << '\n';
                 } else {
                     std::cout << report;
                 }
             } else {
                 std::cout << "Format: " << binaryFormatName(formatInfo.format)
-                          << "\\nSize: " << bytes.size() << " bytes"
-                          << "\\nArchitecture: " << formatInfo.architecture
-                          << "\\nEntry point: " << hexValue(formatInfo.entryPoint)
-                          << "\\nSections / segments: " << formatInfo.sections.size()
-                          << "\\nUniversal slices: " << formatInfo.universalArchitectures.size()
-                          << "\\nValidation: " << (formatInfo.valid ? "valid" : "issues detected")
-                          << '\\n';
+                          << "\nSize: " << bytes.size() << " bytes"
+                          << "\nArchitecture: " << formatInfo.architecture
+                          << "\nEntry point: " << hexValue(formatInfo.entryPoint)
+                          << "\nSections / segments: " << formatInfo.sections.size()
+                          << "\nUniversal slices: " << formatInfo.universalArchitectures.size()
+                          << "\nValidation: " << (formatInfo.valid ? "valid" : "issues detected")
+                          << '\n';
                 for (const auto& section : formatInfo.sections)
                     std::cout << "  " << section.name << " address=" << hexValue(section.address)
                               << " offset=" << hexValue(section.offset) << " size=" << hexValue(section.size)
-                              << (section.executable ? " executable" : "") << '\\n';
+                              << (section.executable ? " executable" : "") << '\n';
                 for (const auto& diagnostic : formatInfo.diagnostics.diagnostics)
                     std::cout << "[WARN] " << diagnostic.code << " at "
-                              << hexValue(diagnostic.offset) << ": " << diagnostic.message << '\\n';
+                              << hexValue(diagnostic.offset) << ": " << diagnostic.message << '\n';
             }
             return formatInfo.valid ? 0 : 2;
         }
