@@ -771,6 +771,190 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 }
             }
 
+
+                // Classic dyld bind stream. Weak and lazy bind streams are
+                // deliberately handled by their own passes.
+                const auto bindOffset = dyldStreamFields[2];
+                const auto bindSize = dyldStreamFields[3];
+                if (bindSize != 0 && rangeFits(bindOffset, bindSize, image.size())) {
+                    std::uint64_t streamCursor = bindOffset;
+                    const std::uint64_t streamEnd = static_cast<std::uint64_t>(bindOffset) + bindSize;
+                    std::uint32_t segmentIndex = 0;
+                    std::uint64_t segmentOffset = 0;
+                    std::uint8_t bindType = 1;
+                    std::uint8_t symbolFlags = 0;
+                    std::int32_t libraryOrdinal = 0;
+                    std::int64_t addend = 0;
+                    std::string symbolName;
+                    bool hasSegment = false;
+                    bool hasSymbol = false;
+                    bool terminated = false;
+                    std::size_t emitted = 0;
+                    constexpr std::size_t maxBindEntries = 1000000;
+
+                    const auto readULEB = [&](std::uint64_t& value) -> bool {
+                        value = 0;
+                        unsigned shift = 0;
+                        while (streamCursor < streamEnd) {
+                            const auto byte = bytes[static_cast<std::size_t>(streamCursor++)];
+                            const auto payload = static_cast<std::uint64_t>(byte & 0x7fu);
+                            if (shift >= 64 || (shift == 63 && payload > 1u) ||
+                                (shift < 63 && payload > (std::numeric_limits<std::uint64_t>::max() >> shift)))
+                                return false;
+                            value |= payload << shift;
+                            if ((byte & 0x80u) == 0) return true;
+                            if (shift > 56) return false;
+                            shift += 7;
+                        }
+                        return false;
+                    };
+                    const auto readSLEB = [&](std::int64_t& value) -> bool {
+                        std::uint64_t raw = 0;
+                        unsigned shift = 0;
+                        std::uint8_t byte = 0;
+                        bool complete = false;
+                        for (unsigned count = 0; count < 10 && streamCursor < streamEnd; ++count) {
+                            byte = bytes[static_cast<std::size_t>(streamCursor++)];
+                            const auto payload = static_cast<std::uint64_t>(byte & 0x7fu);
+                            if (shift == 63 && payload != 0 && payload != 0x7fu) return false;
+                            if (shift < 64) raw |= payload << shift;
+                            shift += 7;
+                            if ((byte & 0x80u) == 0) { complete = true; break; }
+                        }
+                        if (!complete) return false;
+                        if (shift < 64 && (byte & 0x40u) != 0) raw |= (~std::uint64_t{0}) << shift;
+                        value = static_cast<std::int64_t>(raw);
+                        return true;
+                    };
+                    const auto addOffset = [&](std::uint64_t amount) -> bool {
+                        if (amount > std::numeric_limits<std::uint64_t>::max() - segmentOffset) return false;
+                        segmentOffset += amount;
+                        return true;
+                    };
+                    const auto emitBind = [&]() -> bool {
+                        if (!hasSegment || !hasSymbol || symbolName.empty() ||
+                            bindType < 1 || bindType > 3 ||
+                            segmentIndex >= machoSegments.size() || emitted >= maxBindEntries)
+                            return false;
+                        const auto& segmentInfo = machoSegments[segmentIndex];
+                        const std::uint64_t pointerSize = info.is64Bit ? 8u : 4u;
+                        const std::uint64_t width = bindType == 1 ? pointerSize : 4u;
+                        if (segmentOffset > segmentInfo.virtualSize ||
+                            width > segmentInfo.virtualSize - segmentOffset ||
+                            segmentOffset > segmentInfo.size || width > segmentInfo.size - segmentOffset ||
+                            segmentInfo.address > std::numeric_limits<std::uint64_t>::max() - segmentOffset ||
+                            segmentInfo.offset > std::numeric_limits<std::uint64_t>::max() - segmentOffset)
+                            return false;
+                        const auto fileOffset = segmentInfo.offset + segmentOffset;
+                        if (!rangeFits(fileOffset, width, image.size())) return false;
+                        info.binds.push_back({segmentIndex, bindType, libraryOrdinal, symbolFlags,
+                                              symbolName, addend, segmentOffset,
+                                              segmentInfo.address + segmentOffset, fileOffset});
+                        ++emitted;
+                        return addOffset(width);
+                    };
+
+                    while (streamCursor < streamEnd && !terminated) {
+                        const auto opcodeByte = bytes[static_cast<std::size_t>(streamCursor++)];
+                        const auto opcode = static_cast<std::uint8_t>(opcodeByte & 0xf0u);
+                        const auto immediate = static_cast<std::uint8_t>(opcodeByte & 0x0fu);
+                        std::uint64_t value = 0;
+                        bool validOpcode = true;
+                        switch (opcode) {
+                        case 0x00u: // BIND_OPCODE_DONE
+                            terminated = true;
+                            break;
+                        case 0x10u: // BIND_OPCODE_SET_DYLIB_ORDINAL_IMM
+                            libraryOrdinal = immediate;
+                            break;
+                        case 0x20u: // BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB
+                            if (!readULEB(value) || value > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+                                validOpcode = false;
+                            else libraryOrdinal = static_cast<std::int32_t>(value);
+                            break;
+                        case 0x30u: // BIND_OPCODE_SET_DYLIB_SPECIAL_IMM
+                            libraryOrdinal = immediate == 0 ? 0 : static_cast<std::int32_t>(immediate) - 16;
+                            break;
+                        case 0x40u: { // BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM
+                            symbolFlags = immediate;
+                            const auto nameStart = streamCursor;
+                            while (streamCursor < streamEnd &&
+                                   bytes[static_cast<std::size_t>(streamCursor)] != 0)
+                                ++streamCursor;
+                            if (streamCursor == streamEnd) {
+                                validOpcode = false;
+                                break;
+                            }
+                            symbolName.assign(reinterpret_cast<const char*>(
+                                bytes.data() + static_cast<std::size_t>(nameStart)),
+                                static_cast<std::size_t>(streamCursor - nameStart));
+                            ++streamCursor;
+                            hasSymbol = !symbolName.empty();
+                            if (!hasSymbol) validOpcode = false;
+                            break;
+                        }
+                        case 0x50u: // BIND_OPCODE_SET_TYPE_IMM
+                            if (immediate < 1 || immediate > 3) validOpcode = false;
+                            else bindType = immediate;
+                            break;
+                        case 0x60u: // BIND_OPCODE_SET_ADDEND_SLEB
+                            if (!readSLEB(addend)) validOpcode = false;
+                            break;
+                        case 0x70u: // BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB
+                            segmentIndex = immediate;
+                            hasSegment = segmentIndex < machoSegments.size();
+                            if (!readULEB(value)) validOpcode = false;
+                            else segmentOffset = value;
+                            if (!hasSegment) validOpcode = false;
+                            break;
+                        case 0x80u: // BIND_OPCODE_ADD_ADDR_ULEB
+                            if (!readULEB(value) || !addOffset(value)) validOpcode = false;
+                            break;
+                        case 0x90u: // BIND_OPCODE_DO_BIND
+                            if (!emitBind()) validOpcode = false;
+                            break;
+                        case 0xa0u: // BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB
+                            if (!emitBind() || !readULEB(value) || !addOffset(value)) validOpcode = false;
+                            break;
+                        case 0xb0u: // BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED
+                            if (!emitBind() ||
+                                !addOffset(static_cast<std::uint64_t>(immediate) * (info.is64Bit ? 8u : 4u)))
+                                validOpcode = false;
+                            break;
+                        case 0xc0u: { // BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB
+                            std::uint64_t count = 0, skip = 0;
+                            if (!readULEB(count) || !readULEB(skip) ||
+                                count > maxBindEntries - emitted) {
+                                validOpcode = false;
+                                break;
+                            }
+                            for (std::uint64_t i = 0; i < count && validOpcode; ++i)
+                                validOpcode = emitBind() && addOffset(skip);
+                            break;
+                        }
+                        case 0xd0u: // BIND_OPCODE_THREADED
+                            // Threaded bind tables require a separate pointer-chain
+                            // interpreter; rejecting them is safer than misreporting.
+                            validOpcode = false;
+                            break;
+                        default:
+                            validOpcode = false;
+                            break;
+                        }
+                        if (!validOpcode) {
+                            diag(info, "MACHO_BIND_OPCODE",
+                                 "Mach-O dyld bind stream contains an invalid opcode, operand, symbol, segment, or bind location",
+                                 static_cast<std::size_t>(streamCursor - 1));
+                            break;
+                        }
+                    }
+                    if (!terminated && streamCursor == streamEnd)
+                        diag(info, "MACHO_BIND_UNTERMINATED",
+                             "Mach-O dyld bind stream does not end with BIND_OPCODE_DONE",
+                             static_cast<std::size_t>(bindOffset));
+                }
+            }
+
             if (hasDynamicSymbolTable) {
                 const auto validateSymbolRange = [&](std::uint32_t index, std::uint32_t count, const char* code, const char* description) {
                     const std::uint64_t end = static_cast<std::uint64_t>(index) + count;
