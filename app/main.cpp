@@ -29,6 +29,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -80,6 +81,75 @@ static bool writeTextFile(
 
     out << content << '\n';
     return static_cast<bool>(out);
+}
+
+
+static std::string jsonEscape(const std::string& value) {
+    std::string out;
+    for (unsigned char ch : value) {
+        switch (ch) {
+        case '"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default: if (ch >= 0x20) out.push_back(static_cast<char>(ch)); break;
+        }
+    }
+    return out;
+}
+static const char* binaryFormatName(lulz::binary::Format format) {
+    switch (format) {
+    case lulz::binary::Format::PE: return "PE";
+    case lulz::binary::Format::ELF: return "ELF";
+    case lulz::binary::Format::MachO: return "Mach-O";
+    default: return "Unknown";
+    }
+}
+static std::string genericAnalysisJson(const lulz::binary::FormatInfo& info,
+                                       const std::vector<std::uint8_t>& bytes,
+                                       const std::string& path) {
+    std::ostringstream out;
+    out << "{\n  \"file\": \"" << jsonEscape(path)
+        << "\",\n  \"format\": \"" << binaryFormatName(info.format)
+        << "\",\n  \"valid\": " << (info.valid ? "true" : "false")
+        << ",\n  \"size\": " << bytes.size()
+        << ",\n  \"is64Bit\": " << (info.is64Bit ? "true" : "false")
+        << ",\n  \"isBigEndian\": " << (info.isBigEndian ? "true" : "false")
+        << ",\n  \"architecture\": " << info.architecture
+        << ",\n  \"architectureSubtype\": " << info.architectureSubtype
+        << ",\n  \"fileType\": " << info.fileType
+        << ",\n  \"imageBase\": " << info.imageBase
+        << ",\n  \"entryPoint\": " << info.entryPoint
+        << ",\n  \"entryFileOffset\": " << info.entryFileOffset
+        << ",\n  \"sections\": [";
+    for (std::size_t i = 0; i < info.sections.size(); ++i) {
+        const auto& s = info.sections[i];
+        if (i) out << ",";
+        out << "\n    {\"name\": \"" << jsonEscape(s.name)
+            << "\", \"offset\": " << s.offset << ", \"size\": " << s.size
+            << ", \"address\": " << s.address << ", \"virtualSize\": " << s.virtualSize
+            << ", \"executable\": " << (s.executable ? "true" : "false") << "}";
+    }
+    out << "\n  ],\n  \"universalArchitectures\": [";
+    for (std::size_t i = 0; i < info.universalArchitectures.size(); ++i) {
+        const auto& a = info.universalArchitectures[i];
+        if (i) out << ",";
+        out << "\n    {\"cpuType\": " << a.cpuType << ", \"cpuSubtype\": " << a.cpuSubtype
+            << ", \"offset\": " << a.offset << ", \"size\": " << a.size
+            << ", \"alignment\": " << a.alignment << ", \"is64Bit\": "
+            << (a.is64Bit ? "true" : "false") << ", \"valid\": "
+            << (a.valid ? "true" : "false") << "}";
+    }
+    out << "\n  ],\n  \"diagnostics\": [";
+    for (std::size_t i = 0; i < info.diagnostics.diagnostics.size(); ++i) {
+        const auto& d = info.diagnostics.diagnostics[i];
+        if (i) out << ",";
+        out << "\n    {\"code\": \"" << jsonEscape(d.code) << "\", \"message\": \""
+            << jsonEscape(d.message) << "\", \"offset\": " << d.offset << "}";
+    }
+    out << "\n  ]\n}\n";
+    return out.str();
 }
 
 // ==========================================
