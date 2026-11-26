@@ -19,7 +19,7 @@ struct MachOModule {
     std::uint32_t referenceSymbolIndex=0, referenceSymbolCount=0;
     std::uint32_t localSymbolIndex=0, localSymbolCount=0;
     std::uint32_t externalRelocationIndex=0, externalRelocationCount=0;
-    std::uint16_t initTermIndex=0, initTermCount=0;
+    std::uint32_t initTermIndex=0, initTermCount=0;
     std::uint32_t objcModuleInfoSize=0;
     std::uint64_t objcModuleInfoAddress=0;
 };

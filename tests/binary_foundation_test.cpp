@@ -122,6 +122,7 @@ std::vector<std::uint8_t> makeMachO64WithModuleTable() {
     const std::size_t dysymtab = 32 + 152 + 24 + 24;
     put32(b, dysymtab + 40, 0x1b0);
     put32(b, dysymtab + 44, 1);
+    put32(b, 32 + 152 + 24 + 20, 12); // extend string table for module name
     put32(b, dysymtab + 52, 1);
     put32(b, 0x1b0, 5);
     put32(b, 0x1b4, 0); put32(b, 0x1b8, 1);
@@ -130,7 +131,7 @@ std::vector<std::uint8_t> makeMachO64WithModuleTable() {
     put32(b, 0x1cc, 0); put32(b, 0x1d0, 0);
     put32(b, 0x1d4, 0);
     put32(b, 0x1d8, 0);
-    put64(b, 0x1dc, 0);
+    put64(b, 0x1e0, 0);
     b[0x195] = 'm'; b[0x196] = 'o'; b[0x197] = 'd'; b[0x198] = 0;
     return b;
 }

@@ -632,11 +632,10 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         module.localSymbolCount = view.u32le(entry + 24).value_or(0);
                         module.externalRelocationIndex = view.u32le(entry + 28).value_or(0);
                         module.externalRelocationCount = view.u32le(entry + 32).value_or(0);
-                        const auto initTerm = view.u32le(entry + 36).value_or(0);
-                        module.initTermIndex = static_cast<std::uint16_t>(initTerm & 0xffffu);
-                        module.initTermCount = static_cast<std::uint16_t>(initTerm >> 16);
-                        module.objcModuleInfoSize = view.u32le(entry + 40).value_or(0);
-                        module.objcModuleInfoAddress = info.is64Bit ? view.u64le(entry + 44).value_or(0) : view.u32le(entry + 44).value_or(0);
+                        module.initTermIndex = view.u32le(entry + 36).value_or(0);
+                        module.initTermCount = view.u32le(entry + 40).value_or(0);
+                        module.objcModuleInfoSize = view.u32le(entry + 44).value_or(0);
+                        module.objcModuleInfoAddress = info.is64Bit ? view.u64le(entry + 48).value_or(0) : view.u32le(entry + 48).value_or(0);
                         const auto validateRange = [&](std::uint32_t index, std::uint32_t count, std::uint32_t limit,
                                                         const char* diagnosticCode, const char* message, std::size_t fieldOffset) {
                             if (static_cast<std::uint64_t>(index) + count > limit) {
