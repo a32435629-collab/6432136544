@@ -137,6 +137,17 @@ std::vector<std::uint8_t> makeMachO64WithModuleTable() {
     b[0x195] = 'm'; b[0x196] = 'o'; b[0x197] = 'd'; b[0x198] = 0;
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithInitTermPointers() {
+    auto b = makeMachO64();
+    const std::size_t section = 32 + 72;
+    b[section] = '_'; b[section + 1] = '_'; b[section + 2] = 'm'; b[section + 3] = 'o'; b[section + 4] = 'd'; b[section + 5] = '_'; b[section + 6] = 'i'; b[section + 7] = 'n'; b[section + 8] = 'i'; b[section + 9] = 't';
+    put64(b, section + 32, 0x100000090ull);
+    put64(b, section + 40, 8);
+    put32(b, section + 48, 0x90);
+    put32(b, section + 64, 0x9); // S_MOD_INIT_FUNC_POINTERS
+    put64(b, 0x90, 0x100000080ull);
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64WithSectionRelocation() {
     auto b = makeMachO64WithSymtab();
     const std::size_t section = 32 + 72;
@@ -541,6 +552,31 @@ int main() {
     auto machoLocalIndirectSymbol = analyzeFormat(BinaryImage::fromBytes(std::move(machoLocalIndirectSymbolBytes)));
     assert(machoLocalIndirectSymbol.valid);
     assert(machoLocalIndirectSymbol.indirectSymbols[0] == 0x80000000u);
+
+    auto machoInitTerm = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithInitTermPointers()));
+    assert(machoInitTerm.format == Format::MachO && machoInitTerm.valid);
+    assert(machoInitTerm.initTermPointers.size() == 1);
+    assert(machoInitTerm.initTermPointers[0].initializer);
+    assert(machoInitTerm.initTermPointers[0].address == 0x100000090ull);
+    assert(machoInitTerm.initTermPointers[0].target == 0x100000080ull);
+
+    auto badMachOInitTermSizeBytes = makeMachO64WithInitTermPointers();
+    put64(badMachOInitTermSizeBytes, 32 + 72 + 40, 7);
+    auto badMachOInitTermSize = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOInitTermSizeBytes)));
+    assert(!badMachOInitTermSize.valid);
+    bool foundInitTermSize = false;
+    for (const auto& diagnostic : badMachOInitTermSize.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_INIT_TERM_SECTION_SIZE") foundInitTermSize = true;
+    assert(foundInitTermSize);
+
+    auto badMachOInitTermTargetBytes = makeMachO64WithInitTermPointers();
+    put64(badMachOInitTermTargetBytes, 0x90, 0x200000000ull);
+    auto badMachOInitTermTarget = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOInitTermTargetBytes)));
+    assert(!badMachOInitTermTarget.valid);
+    bool foundInitTermTarget = false;
+    for (const auto& diagnostic : badMachOInitTermTarget.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_INIT_TERM_TARGET_NOT_EXECUTABLE") foundInitTermTarget = true;
+    assert(foundInitTermTarget);
 
     auto machoSectionRelocation = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithSectionRelocation()));
     assert(machoSectionRelocation.format == Format::MachO && machoSectionRelocation.valid);

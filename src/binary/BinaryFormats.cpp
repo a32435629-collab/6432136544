@@ -402,6 +402,51 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     for (std::uint32_t sectionIndex = 0; sectionIndex < sectionCount; ++sectionIndex) {
                         const auto sectionBase = base + static_cast<std::size_t>(minimumSegmentSize +
                             static_cast<std::uint64_t>(sectionIndex) * sectionEntrySize);
+                        const auto sectionAddress = info.is64Bit
+                            ? view.u64le(sectionBase + 32).value_or(0)
+                            : view.u32le(sectionBase + 32).value_or(0);
+                        const auto sectionSize = info.is64Bit
+                            ? view.u64le(sectionBase + 40).value_or(0)
+                            : view.u32le(sectionBase + 36).value_or(0);
+                        const auto sectionFileOffset = view.u32le(sectionBase + (info.is64Bit ? 48 : 40)).value_or(0);
+                        const auto sectionFlags = view.u32le(sectionBase + (info.is64Bit ? 64 : 56)).value_or(0);
+                        const auto sectionType = sectionFlags & 0xffu;
+                        if (sectionType == 0x9u || sectionType == 0xau) { // S_MOD_INIT_FUNC_POINTERS / S_MOD_TERM_FUNC_POINTERS
+                            const std::uint64_t pointerSize = info.is64Bit ? 8u : 4u;
+                            if (!rangeFits(sectionFileOffset, sectionSize, image.size())) {
+                                diag(info, "MACHO_INIT_TERM_SECTION_RANGE",
+                                     "Mach-O init/term pointer section extends beyond the file", sectionBase);
+                            } else if ((sectionSize % pointerSize) != 0) {
+                                diag(info, "MACHO_INIT_TERM_SECTION_SIZE",
+                                     "Mach-O init/term pointer section size is not pointer-aligned", sectionBase);
+                            } else if (sectionSize > 0 && sectionAddress > std::numeric_limits<std::uint64_t>::max() - sectionSize) {
+                                diag(info, "MACHO_INIT_TERM_ADDRESS_OVERFLOW",
+                                     "Mach-O init/term pointer section virtual range overflows", sectionBase);
+                            } else {
+                                const bool initializer = sectionType == 0x9u;
+                                for (std::uint64_t pointerOffset = 0; pointerOffset < sectionSize; pointerOffset += pointerSize) {
+                                    const auto pointerFileOffset = static_cast<std::size_t>(
+                                        static_cast<std::uint64_t>(sectionFileOffset) + pointerOffset);
+                                    const auto target = info.is64Bit
+                                        ? view.u64le(pointerFileOffset).value_or(0)
+                                        : view.u32le(pointerFileOffset).value_or(0);
+                                    if (target == 0) {
+                                        diag(info, "MACHO_INIT_TERM_NULL_TARGET",
+                                             "Mach-O init/term pointer entry is null", pointerFileOffset);
+                                        continue;
+                                    }
+                                    const auto segmentEnd = vmAddress <= std::numeric_limits<std::uint64_t>::max() - vmSize
+                                        ? vmAddress + vmSize : 0;
+                                    if ((protection & 4u) == 0 || segmentEnd == 0 ||
+                                        target < vmAddress || target >= segmentEnd) {
+                                        diag(info, "MACHO_INIT_TERM_TARGET_NOT_EXECUTABLE",
+                                             "Mach-O init/term pointer does not target its executable segment", pointerFileOffset);
+                                        continue;
+                                    }
+                                    info.initTermPointers.push_back({sectionAddress + pointerOffset, target, initializer});
+                                }
+                            }
+                        }
                         const auto relocationOffset = view.u32le(sectionBase + (info.is64Bit ? 56 : 48)).value_or(0);
                         const auto relocationCount = view.u32le(sectionBase + (info.is64Bit ? 60 : 52)).value_or(0);
                         const auto sectionSize = info.is64Bit
