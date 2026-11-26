@@ -82,6 +82,19 @@ std::vector<std::uint8_t> makeMachO64WithSymtab() {
     b[0x191] = 'f'; b[0x192] = 'o'; b[0x193] = 'o'; b[0x194] = 0;
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithRelocations() {
+    auto b = makeMachO64WithSymtab();
+    put32(b, 16, 4); // segment + LC_MAIN + LC_SYMTAB + LC_DYSYMTAB
+    put32(b, 20, 280);
+    const std::size_t dysymtab = 32 + 152 + 24 + 24;
+    put32(b, dysymtab, 0xbu); // LC_DYSYMTAB
+    put32(b, dysymtab + 4, 80);
+    put32(b, dysymtab + 64, 0x1a0); // extreloff
+    put32(b, dysymtab + 68, 1); // nextrel
+    put32(b, 0x1a0, 0x80); // r_address
+    put32(b, 0x1a4, 0x08000000u); // external, 8-byte, unsigned, symbol 0
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64UnixThread() {
     auto b = makeMachO64();
     put32(b, 16, 2); // segment + LC_UNIXTHREAD
@@ -324,6 +337,30 @@ int main() {
     put32(duplicateMachOSymtabBytes, duplicateSymtab + 20, 8);
     auto duplicateMachOSymtab = analyzeFormat(BinaryImage::fromBytes(std::move(duplicateMachOSymtabBytes)));
     assert(!duplicateMachOSymtab.valid);
+
+    auto machoRelocations = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithRelocations()));
+    assert(machoRelocations.format == Format::MachO && machoRelocations.valid);
+    assert(machoRelocations.relocations.size() == 1);
+    assert(machoRelocations.relocations[0].address == 0x80);
+    assert(machoRelocations.relocations[0].symbolNumber == 0);
+    assert(machoRelocations.relocations[0].external);
+    assert(machoRelocations.relocations[0].length == 3);
+    assert(machoRelocations.relocations[0].type == 0);
+
+    auto badMachORelocationRangeBytes = makeMachO64WithRelocations();
+    put32(badMachORelocationRangeBytes, 32 + 152 + 24 + 24 + 64, 0x1fc);
+    auto badMachORelocationRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachORelocationRangeBytes)));
+    assert(!badMachORelocationRange.valid);
+
+    auto badMachORelocationSymbolBytes = makeMachO64WithRelocations();
+    put32(badMachORelocationSymbolBytes, 0x1a4, 0x08000001u);
+    auto badMachORelocationSymbol = analyzeFormat(BinaryImage::fromBytes(std::move(badMachORelocationSymbolBytes)));
+    assert(!badMachORelocationSymbol.valid);
+
+    auto nonExternalMachORelocationBytes = makeMachO64WithRelocations();
+    put32(nonExternalMachORelocationBytes, 0x1a4, 0x00000000u);
+    auto nonExternalMachORelocation = analyzeFormat(BinaryImage::fromBytes(std::move(nonExternalMachORelocationBytes)));
+    assert(!nonExternalMachORelocation.valid);
 
     auto machoUnixThread = analyzeFormat(BinaryImage::fromBytes(makeMachO64UnixThread()));
     assert(machoUnixThread.format == Format::MachO && machoUnixThread.valid);

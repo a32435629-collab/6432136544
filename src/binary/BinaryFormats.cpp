@@ -338,6 +338,9 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             bool hasUnixThreadCommand = false;
             bool hasSymbolTableCommand = false;
             std::uint32_t symbolOffset = 0, symbolCount = 0, stringOffset = 0, stringSize = 0;
+            std::uint32_t externalRelocationOffset = 0, externalRelocationCount = 0;
+            std::uint32_t localRelocationOffset = 0, localRelocationCount = 0;
+            bool hasDynamicSymbolTable = false;
             std::uint64_t unixThreadEntryPoint = 0;
             for (std::uint32_t i = 0; i < commandCount; ++i) {
                 if (!rangeFits(cursor, 8, static_cast<std::size_t>(commandEnd))) {
@@ -448,6 +451,21 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     symbolCount = view.u32le(base + 12).value_or(0);
                     stringOffset = view.u32le(base + 16).value_or(0);
                     stringSize = view.u32le(base + 20).value_or(0);
+                } else if (command == 0xbu) { // LC_DYSYMTAB
+                    const auto base = static_cast<std::size_t>(cursor);
+                    if (size < 80) {
+                        diag(info, "MACHO_DYSYMTAB_TRUNCATED", "LC_DYSYMTAB command is smaller than its required fields", base);
+                        break;
+                    }
+                    if (hasDynamicSymbolTable) {
+                        diag(info, "MACHO_DYSYMTAB_DUPLICATE", "Mach-O image contains more than one LC_DYSYMTAB command", base);
+                        break;
+                    }
+                    hasDynamicSymbolTable = true;
+                    externalRelocationOffset = view.u32le(base + 64).value_or(0);
+                    externalRelocationCount = view.u32le(base + 68).value_or(0);
+                    localRelocationOffset = view.u32le(base + 72).value_or(0);
+                    localRelocationCount = view.u32le(base + 76).value_or(0);
                 } else if (command == 0x80000028u) { // LC_MAIN
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 24) {
@@ -517,6 +535,53 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         info.symbols.push_back({std::move(symbolName), symbolType, sectionIndex, description, value});
                     }
                 }
+            }
+
+            if (hasDynamicSymbolTable) {
+                const auto parseRelocationTable = [&](std::uint32_t tableOffset, std::uint32_t count, bool externalTable) {
+                    constexpr std::uint64_t relocationEntrySize = 8;
+                    const std::uint64_t tableBytes = static_cast<std::uint64_t>(count) * relocationEntrySize;
+                    if (!rangeFits(tableOffset, tableBytes, image.size())) {
+                        diag(info, externalTable ? "MACHO_EXTRELOC_RANGE" : "MACHO_LOCRELOC_RANGE",
+                             "Mach-O relocation table extends beyond the file", tableOffset);
+                        return;
+                    }
+                    for (std::uint32_t i = 0; i < count; ++i) {
+                        const auto entry = static_cast<std::size_t>(
+                            static_cast<std::uint64_t>(tableOffset) + static_cast<std::uint64_t>(i) * relocationEntrySize);
+                        const auto rawAddress = view.u32le(entry).value_or(0);
+                        const auto word = view.u32le(entry + 4).value_or(0);
+                        Relocation relocation;
+                        relocation.address = static_cast<std::int32_t>(rawAddress);
+                        if ((rawAddress & 0x80000000u) != 0) {
+                            relocation.scattered = true;
+                            relocation.address = static_cast<std::int32_t>(rawAddress & 0x00ffffffu);
+                            relocation.type = static_cast<std::uint8_t>((rawAddress >> 24) & 0x0fu);
+                            relocation.length = static_cast<std::uint8_t>((rawAddress >> 28) & 0x03u);
+                            relocation.pcRelative = ((rawAddress >> 30) & 1u) != 0;
+                            relocation.value = word;
+                        } else {
+                            relocation.symbolNumber = word & 0x00ffffffu;
+                            relocation.pcRelative = ((word >> 24) & 1u) != 0;
+                            relocation.length = static_cast<std::uint8_t>((word >> 25) & 0x03u);
+                            relocation.external = ((word >> 27) & 1u) != 0;
+                            relocation.type = static_cast<std::uint8_t>((word >> 28) & 0x0fu);
+                            if (relocation.external && relocation.symbolNumber >= info.symbols.size()) {
+                                diag(info, "MACHO_RELOCATION_SYMBOL_INDEX",
+                                     "Mach-O external relocation references a missing symbol", entry + 4);
+                                continue;
+                            }
+                            if (externalTable && !relocation.external) {
+                                diag(info, "MACHO_EXTRELOC_NOT_EXTERNAL",
+                                     "External relocation table contains a non-external relocation", entry + 4);
+                                continue;
+                            }
+                        }
+                        info.relocations.push_back(relocation);
+                    }
+                };
+                parseRelocationTable(externalRelocationOffset, externalRelocationCount, true);
+                parseRelocationTable(localRelocationOffset, localRelocationCount, false);
             }
 
             if (hasMainCommand && hasUnixThreadCommand)
