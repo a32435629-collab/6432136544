@@ -174,6 +174,7 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_subsystem_tests
             lulz_ai_tests
             lulz_pe_windows_metadata_tests
+            lulz_instruction_ir_tests
         )
             target_compile_options(${test_target} PRIVATE /UNDEBUG)
         endforeach()
