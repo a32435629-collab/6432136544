@@ -341,6 +341,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t externalRelocationOffset = 0, externalRelocationCount = 0;
             std::uint32_t localRelocationOffset = 0, localRelocationCount = 0;
             bool hasDynamicSymbolTable = false;
+            struct SectionRelocationTable { std::uint32_t offset; std::uint32_t count; std::uint64_t sectionSize; std::size_t diagnosticOffset; };
+            std::vector<SectionRelocationTable> sectionRelocationTables;
             std::uint64_t unixThreadEntryPoint = 0;
             for (std::uint32_t i = 0; i < commandCount; ++i) {
                 if (!rangeFits(cursor, 8, static_cast<std::size_t>(commandEnd))) {
@@ -391,6 +393,17 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         (protection & ~maxProtection) != 0)
                         diag(info, "MACHO_SEGMENT_PROTECTION", "Mach-O segment protections are invalid or exceed maximum protections", base);
                     info.sections.push_back({name8(image, base + 8), fileOffset, fileSize, vmAddress, vmSize, (protection & 4u) != 0});
+                    for (std::uint32_t sectionIndex = 0; sectionIndex < sectionCount; ++sectionIndex) {
+                        const auto sectionBase = base + static_cast<std::size_t>(minimumSegmentSize +
+                            static_cast<std::uint64_t>(sectionIndex) * sectionEntrySize);
+                        const auto relocationOffset = view.u32le(sectionBase + (info.is64Bit ? 56 : 48)).value_or(0);
+                        const auto relocationCount = view.u32le(sectionBase + (info.is64Bit ? 60 : 52)).value_or(0);
+                        const auto sectionSize = info.is64Bit
+                            ? view.u64le(sectionBase + 40).value_or(0)
+                            : view.u32le(sectionBase + 36).value_or(0);
+                        if (relocationCount != 0)
+                            sectionRelocationTables.push_back({relocationOffset, relocationCount, sectionSize, sectionBase});
+                    }
                 } else if (command == 0x5u) { // LC_UNIXTHREAD
                     const auto base = static_cast<std::size_t>(cursor);
                     if (hasUnixThreadCommand) {
@@ -582,6 +595,54 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 };
                 parseRelocationTable(externalRelocationOffset, externalRelocationCount, true);
                 parseRelocationTable(localRelocationOffset, localRelocationCount, false);
+            }
+
+            // Section relocation records are separate from LC_DYSYMTAB's
+            // external/local relocation arrays. Parse them after LC_SYMTAB so
+            // external symbol indices can be checked against the full symbol list.
+            for (const auto& table : sectionRelocationTables) {
+                constexpr std::uint64_t relocationEntrySize = 8;
+                const auto tableBytes = static_cast<std::uint64_t>(table.count) * relocationEntrySize;
+                if (!rangeFits(table.offset, tableBytes, image.size())) {
+                    diag(info, "MACHO_SECTION_RELOC_RANGE",
+                         "Mach-O section relocation table extends beyond the file", table.diagnosticOffset);
+                    continue;
+                }
+                for (std::uint32_t relocationIndex = 0; relocationIndex < table.count; ++relocationIndex) {
+                    const auto entry = static_cast<std::size_t>(
+                        static_cast<std::uint64_t>(table.offset) +
+                        static_cast<std::uint64_t>(relocationIndex) * relocationEntrySize);
+                    const auto rawAddress = view.u32le(entry).value_or(0);
+                    const auto word = view.u32le(entry + 4).value_or(0);
+                    Relocation relocation;
+                    relocation.address = static_cast<std::int32_t>(rawAddress);
+                    if ((rawAddress & 0x80000000u) != 0) {
+                        relocation.scattered = true;
+                        relocation.address = static_cast<std::int32_t>(rawAddress & 0x00ffffffu);
+                        relocation.type = static_cast<std::uint8_t>((rawAddress >> 24) & 0x0fu);
+                        relocation.length = static_cast<std::uint8_t>((rawAddress >> 28) & 0x03u);
+                        relocation.pcRelative = ((rawAddress >> 30) & 1u) != 0;
+                        relocation.value = word;
+                    } else {
+                        relocation.symbolNumber = word & 0x00ffffffu;
+                        relocation.pcRelative = ((word >> 24) & 1u) != 0;
+                        relocation.length = static_cast<std::uint8_t>((word >> 25) & 0x03u);
+                        relocation.external = ((word >> 27) & 1u) != 0;
+                        relocation.type = static_cast<std::uint8_t>((word >> 28) & 0x0fu);
+                        if (relocation.address < 0 ||
+                            static_cast<std::uint64_t>(relocation.address) >= table.sectionSize) {
+                            diag(info, "MACHO_SECTION_RELOC_ADDRESS",
+                                 "Mach-O section relocation address is outside its section", entry);
+                            continue;
+                        }
+                        if (relocation.external && relocation.symbolNumber >= info.symbols.size()) {
+                            diag(info, "MACHO_SECTION_RELOC_SYMBOL_INDEX",
+                                 "Mach-O section external relocation references a missing symbol", entry + 4);
+                            continue;
+                        }
+                    }
+                    info.relocations.push_back(relocation);
+                }
             }
 
             if (hasMainCommand && hasUnixThreadCommand)

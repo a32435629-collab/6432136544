@@ -95,6 +95,15 @@ std::vector<std::uint8_t> makeMachO64WithRelocations() {
     put32(b, 0x1a4, 0x08000000u); // external, 8-byte, unsigned, symbol 0
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithSectionRelocation() {
+    auto b = makeMachO64WithSymtab();
+    const std::size_t section = 32 + 72;
+    put32(b, section + 56, 0x1a0); // section reloff
+    put32(b, section + 60, 1); // section nreloc
+    put32(b, 0x1a0, 0x80); // r_address within the section
+    put32(b, 0x1a4, 0x08000000u); // external, 8-byte, unsigned, symbol 0
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64UnixThread() {
     auto b = makeMachO64();
     put32(b, 16, 2); // segment + LC_UNIXTHREAD
@@ -361,6 +370,32 @@ int main() {
     put32(nonExternalMachORelocationBytes, 0x1a4, 0x00000000u);
     auto nonExternalMachORelocation = analyzeFormat(BinaryImage::fromBytes(std::move(nonExternalMachORelocationBytes)));
     assert(!nonExternalMachORelocation.valid);
+
+    auto machoSectionRelocation = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithSectionRelocation()));
+    assert(machoSectionRelocation.format == Format::MachO && machoSectionRelocation.valid);
+    assert(machoSectionRelocation.relocations.size() == 1);
+    assert(machoSectionRelocation.relocations[0].address == 0x80);
+    assert(machoSectionRelocation.relocations[0].external);
+    assert(machoSectionRelocation.relocations[0].symbolNumber == 0);
+
+    auto badMachOSectionRelocRangeBytes = makeMachO64WithSectionRelocation();
+    put32(badMachOSectionRelocRangeBytes, 32 + 72 + 56, 0x1fc);
+    auto badMachOSectionRelocRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOSectionRelocRangeBytes)));
+    assert(!badMachOSectionRelocRange.valid);
+    bool foundSectionRelocRange = false;
+    for (const auto& diagnostic : badMachOSectionRelocRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_SECTION_RELOC_RANGE") foundSectionRelocRange = true;
+    assert(foundSectionRelocRange);
+
+    auto badMachOSectionRelocAddressBytes = makeMachO64WithSectionRelocation();
+    put32(badMachOSectionRelocAddressBytes, 0x1a0, 0x100); // outside section size
+    auto badMachOSectionRelocAddress = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOSectionRelocAddressBytes)));
+    assert(!badMachOSectionRelocAddress.valid);
+
+    auto badMachOSectionRelocSymbolBytes = makeMachO64WithSectionRelocation();
+    put32(badMachOSectionRelocSymbolBytes, 0x1a4, 0x08000001u);
+    auto badMachOSectionRelocSymbol = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOSectionRelocSymbolBytes)));
+    assert(!badMachOSectionRelocSymbol.valid);
 
     auto machoUnixThread = analyzeFormat(BinaryImage::fromBytes(makeMachO64UnixThread()));
     assert(machoUnixThread.format == Format::MachO && machoUnixThread.valid);
