@@ -4,6 +4,7 @@
 #include <array>
 #include <limits>
 #include <utility>
+#include <unordered_set>
 
 namespace lulz::binary {
 namespace {
@@ -960,7 +961,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 if (exportSize != 0 && rangeFits(exportOffset, exportSize, image.size())) {
                     constexpr std::size_t maxExportNodes = 100000;
                     const std::uint64_t exportEnd = static_cast<std::uint64_t>(exportOffset) + exportSize;
-                    std::vector<std::uint8_t> visited(exportSize, 0);
+                    std::unordered_set<std::uint64_t> visited;
                     std::vector<std::pair<std::uint64_t, std::string>> pending;
                     pending.push_back({0, {}});
                     std::size_t visitedCount = 0;
@@ -989,11 +990,10 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             diag(info, "MACHO_EXPORT_NODE_OFFSET", "Mach-O export trie child points outside the trie", exportOffset);
                             break;
                         }
-                        if (visited[static_cast<std::size_t>(nodeOffset)] != 0) {
+                        if (!visited.insert(nodeOffset).second) {
                             diag(info, "MACHO_EXPORT_CYCLE", "Mach-O export trie contains a cycle or duplicate node reference", exportOffset + static_cast<std::size_t>(nodeOffset));
                             continue;
                         }
-                        visited[static_cast<std::size_t>(nodeOffset)] = 1;
                         if (++visitedCount > maxExportNodes) {
                             diag(info, "MACHO_EXPORT_NODE_LIMIT", "Mach-O export trie exceeds the node processing limit", exportOffset);
                             break;

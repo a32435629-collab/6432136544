@@ -98,14 +98,14 @@ int main() {
     exportImage.resize(0x1c0 + sizeof(trie));
     for (std::size_t i = 0; i < sizeof(trie); ++i) exportImage[0x1c0 + i] = trie[i];
     // Correct the stream size to the complete trie.
-    put32(exportImage, 32 + 152 + 24 + 8 + 12, sizeof(trie));
+    put32(exportImage, 32 + 152 + 24 + 44, sizeof(trie));
     auto exported = analyzeFormat(BinaryImage::fromBytes(exportImage));
     assert(exported.valid && exported.exports.size() == 1);
     assert(exported.exports[0].name == "_foo");
     assert(exported.exports[0].address == 0x80);
 
     auto malformedTrie = exportImage;
-    malformedTrie[0x1c0 + 8] = 0xff;
+    malformedTrie[0x1c0 + 7] = 0x7f;
     auto badExport = analyzeFormat(BinaryImage::fromBytes(malformedTrie));
     assert(!badExport.valid);
     assert(hasDiagnostic(badExport, "MACHO_EXPORT_CHILD_OFFSET") ||
