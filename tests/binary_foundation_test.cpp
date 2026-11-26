@@ -41,8 +41,8 @@ std::vector<std::uint8_t> makeMachO64() {
     put32(b, 4, 0x01000007); // CPU_TYPE_X86_64
     put32(b, 8, 3);
     put32(b, 12, 2); // MH_EXECUTE
-    put32(b, 16, 1);
-    put32(b, 20, 152);
+    put32(b, 16, 2);
+    put32(b, 20, 176);
     const std::size_t c = 32;
     put32(b, c, 0x19); // LC_SEGMENT_64
     put32(b, c + 4, 152);
@@ -55,6 +55,11 @@ std::vector<std::uint8_t> makeMachO64() {
     put32(b, c + 56, 7);
     put32(b, c + 60, 5);
     put32(b, c + 64, 1);
+    const std::size_t main = c + 152;
+    put32(b, main, 0x80000028u); // LC_MAIN
+    put32(b, main + 4, 24);
+    put64(b, main + 8, 0x80); // entryoff within executable __TEXT
+    put64(b, main + 16, 0x4000); // stacksize
     return b;
 }
 std::vector<std::uint8_t> makeElf64() {
@@ -218,6 +223,34 @@ int main() {
     assert(macho.architecture == 0x01000007 && macho.architectureSubtype == 3);
     assert(macho.fileType == 2 && macho.sections.size() == 1);
     assert(macho.sections[0].executable);
+    assert(macho.entryFileOffset == 0x80 && macho.entryStackSize == 0x4000);
+    assert(macho.entryPoint == 0x100000080ull);
+
+    auto badMachOMainRangeBytes = makeMachO64();
+    put64(badMachOMainRangeBytes, 32 + 152 + 8, 0x300);
+    auto badMachOMainRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOMainRangeBytes)));
+    assert(!badMachOMainRange.valid);
+
+    auto badMachOMainSegmentBytes = makeMachO64();
+    put64(badMachOMainSegmentBytes, 32 + 152 + 8, 0x180); // outside __TEXT file-backed range
+    auto badMachOMainSegment = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOMainSegmentBytes)));
+    assert(!badMachOMainSegment.valid);
+
+    auto badMachOMainSizeBytes = makeMachO64();
+    put32(badMachOMainSizeBytes, 32 + 152 + 4, 16);
+    auto badMachOMainSize = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOMainSizeBytes)));
+    assert(!badMachOMainSize.valid);
+
+    auto duplicateMachOMainBytes = makeMachO64();
+    duplicateMachOMainBytes.resize(0x200);
+    put32(duplicateMachOMainBytes, 16, 3);
+    put32(duplicateMachOMainBytes, 20, 200);
+    const std::size_t duplicateMain = 32 + 152 + 24;
+    put32(duplicateMachOMainBytes, duplicateMain, 0x80000028u);
+    put32(duplicateMachOMainBytes, duplicateMain + 4, 24);
+    put64(duplicateMachOMainBytes, duplicateMain + 8, 0x80);
+    auto duplicateMachOMain = analyzeFormat(BinaryImage::fromBytes(std::move(duplicateMachOMainBytes)));
+    assert(!duplicateMachOMain.valid);
 
     auto badMachOBytes = makeMachO64();
     put64(badMachOBytes, 32 + 32, 0xfffffffffffffff0ull);

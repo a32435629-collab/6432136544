@@ -333,6 +333,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             }
             std::uint64_t cursor = headerSize;
             const std::uint64_t commandEnd = cursor + commandBytes;
+            bool hasMainCommand = false;
             for (std::uint32_t i = 0; i < commandCount; ++i) {
                 if (!rangeFits(cursor, 8, static_cast<std::size_t>(commandEnd))) {
                     diag(info, "MACHO_COMMAND_TRUNCATED", "Mach-O load command header is truncated", static_cast<std::size_t>(cursor));
@@ -382,11 +383,47 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         (protection & ~maxProtection) != 0)
                         diag(info, "MACHO_SEGMENT_PROTECTION", "Mach-O segment protections are invalid or exceed maximum protections", base);
                     info.sections.push_back({name8(image, base + 8), fileOffset, fileSize, vmAddress, vmSize, (protection & 4u) != 0});
+                } else if (command == 0x80000028u) { // LC_MAIN
+                    const auto base = static_cast<std::size_t>(cursor);
+                    if (size < 24) {
+                        diag(info, "MACHO_MAIN_TRUNCATED", "LC_MAIN command is smaller than its required fields", base);
+                        break;
+                    }
+                    if (hasMainCommand) {
+                        diag(info, "MACHO_MAIN_DUPLICATE", "Mach-O image contains more than one LC_MAIN command", base);
+                        break;
+                    }
+                    hasMainCommand = true;
+                    info.entryFileOffset = view.u64le(base + 8).value_or(0);
+                    info.entryStackSize = view.u64le(base + 16).value_or(0);
+                    if (!rangeFits(info.entryFileOffset, 1, image.size())) {
+                        diag(info, "MACHO_MAIN_FILE_RANGE", "LC_MAIN entryoff is outside the file", base + 8);
+                    }
                 }
                 cursor += size;
             }
             if (cursor != commandEnd)
                 diag(info, "MACHO_COMMAND_BYTES", "Mach-O command sizes do not match sizeofcmds", static_cast<std::size_t>(cursor));
+
+            if (hasMainCommand && rangeFits(info.entryFileOffset, 1, image.size())) {
+                bool mappedExecutableEntry = false;
+                for (const auto& segment : info.sections) {
+                    if (!segment.executable || info.entryFileOffset < segment.offset ||
+                        info.entryFileOffset - segment.offset >= segment.size) continue;
+                    const auto delta = info.entryFileOffset - segment.offset;
+                    if (segment.address > std::numeric_limits<std::uint64_t>::max() - delta) continue;
+                    const auto address = segment.address + delta;
+                    if (segment.virtualSize == 0 || address < segment.address ||
+                        address - segment.address >= segment.virtualSize) continue;
+                    info.entryPoint = address;
+                    mappedExecutableEntry = true;
+                    break;
+                }
+                if (!mappedExecutableEntry)
+                    diag(info, "MACHO_MAIN_NOT_EXECUTABLE",
+                         "LC_MAIN entryoff is not backed by an executable segment",
+                         static_cast<std::size_t>(std::min<std::uint64_t>(info.entryFileOffset, image.size())));
+            }
             info.valid = info.diagnostics.valid;
             return info;
         }
