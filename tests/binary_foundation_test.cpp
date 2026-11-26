@@ -35,6 +35,28 @@ std::vector<std::uint8_t> makePe(bool badRawRange = false) {
     put32(b, s + 36, 0x60000020);
     return b;
 }
+std::vector<std::uint8_t> makeMachO64() {
+    std::vector<std::uint8_t> b(0x200);
+    put32(b, 0, 0xfeedfacf);
+    put32(b, 4, 0x01000007); // CPU_TYPE_X86_64
+    put32(b, 8, 3);
+    put32(b, 12, 2); // MH_EXECUTE
+    put32(b, 16, 1);
+    put32(b, 20, 152);
+    const std::size_t c = 32;
+    put32(b, c, 0x19); // LC_SEGMENT_64
+    put32(b, c + 4, 152);
+    b[c + 8] = '_'; b[c + 9] = '_'; b[c + 10] = 'T'; b[c + 11] = 'E';
+    b[c + 12] = 'X'; b[c + 13] = 'T';
+    put64(b, c + 24, 0x100000000ull);
+    put64(b, c + 32, 0x1000);
+    put64(b, c + 40, 0);
+    put64(b, c + 48, 0x100);
+    put32(b, c + 56, 7);
+    put32(b, c + 60, 5);
+    put32(b, c + 64, 1);
+    return b;
+}
 std::vector<std::uint8_t> makeElf64() {
     std::vector<std::uint8_t> b(0x200);
     b[0] = 0x7f; b[1] = 'E'; b[2] = 'L'; b[3] = 'F';
@@ -189,6 +211,34 @@ int main() {
     put64(badVirtualRangeBytes, 64 + 16, 0xfffffffffffffff0ull);
     auto badVirtualRange = analyzeFormat(BinaryImage::fromBytes(std::move(badVirtualRangeBytes)));
     assert(!badVirtualRange.valid);
+
+
+    auto macho = analyzeFormat(BinaryImage::fromBytes(makeMachO64()));
+    assert(macho.format == Format::MachO && macho.valid && macho.is64Bit);
+    assert(macho.architecture == 0x01000007 && macho.architectureSubtype == 3);
+    assert(macho.fileType == 2 && macho.sections.size() == 1);
+    assert(macho.sections[0].executable);
+
+    auto badMachOBytes = makeMachO64();
+    put64(badMachOBytes, 32 + 32, 0xfffffffffffffff0ull);
+    auto badMachO = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOBytes)));
+    assert(!badMachO.valid);
+
+    auto badMachOProtectionBytes = makeMachO64();
+    put32(badMachOProtectionBytes, 32 + 60, 7); // exceeds max protection 7? change max below
+    put32(badMachOProtectionBytes, 32 + 56, 1);
+    auto badMachOProtection = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOProtectionBytes)));
+    assert(!badMachOProtection.valid);
+
+    auto badMachOSectionCountBytes = makeMachO64();
+    put32(badMachOSectionCountBytes, 32 + 64, 2); // command only has room for one section
+    auto badMachOSectionCount = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOSectionCountBytes)));
+    assert(!badMachOSectionCount.valid);
+
+    auto badMachOCmdSizeBytes = makeMachO64();
+    put32(badMachOCmdSizeBytes, 32 + 4, 149);
+    auto badMachOCmdSize = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOCmdSizeBytes)));
+    assert(!badMachOCmdSize.valid);
 
     auto payloadImage = BinaryImage::fromBytes({0,0,'M','Z',0,0,0x50,0x4b,3,4,0x1f,0x8b,0,0});
     const auto payloads = detectEmbeddedPayloads(payloadImage);

@@ -322,6 +322,9 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 diag(info, "MACHO_HEADER_TRUNCATED", "Mach-O header is truncated", 0);
                 return info;
             }
+            info.architecture = view.u32le(4).value_or(0);
+            info.architectureSubtype = view.u32le(8).value_or(0);
+            info.fileType = view.u32le(12).value_or(0);
             const auto commandCount = view.u32le(16).value_or(0);
             const auto commandBytes = view.u32le(20).value_or(0);
             if (commandCount > 65536 || !rangeFits(headerSize, commandBytes, image.size())) {
@@ -337,8 +340,10 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 }
                 const auto command = view.u32le(static_cast<std::size_t>(cursor)).value_or(0);
                 const auto size = view.u32le(static_cast<std::size_t>(cursor) + 4).value_or(0);
-                if (size < 8 || !rangeFits(cursor, size, static_cast<std::size_t>(commandEnd))) {
-                    diag(info, "MACHO_COMMAND_SIZE", "Mach-O load command has an invalid cmdsize", static_cast<std::size_t>(cursor));
+                const std::uint32_t commandAlignment = info.is64Bit ? 8u : 4u;
+                if (size < 8 || (size % commandAlignment) != 0 ||
+                    !rangeFits(cursor, size, static_cast<std::size_t>(commandEnd))) {
+                    diag(info, "MACHO_COMMAND_SIZE", "Mach-O load command has an invalid or misaligned cmdsize", static_cast<std::size_t>(cursor));
                     break;
                 }
                 const bool segment = (info.is64Bit && command == 0x19) || (!info.is64Bit && command == 1);
@@ -353,11 +358,29 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     const auto vmSize = info.is64Bit ? view.u64le(base + 32).value_or(0) : view.u32le(base + 28).value_or(0);
                     const auto fileOffset = info.is64Bit ? view.u64le(base + 40).value_or(0) : view.u32le(base + 32).value_or(0);
                     const auto fileSize = info.is64Bit ? view.u64le(base + 48).value_or(0) : view.u32le(base + 36).value_or(0);
+                    const auto maxProtection = view.u32le(base + (info.is64Bit ? 56 : 40)).value_or(0);
                     const auto protection = view.u32le(base + (info.is64Bit ? 60 : 44)).value_or(0);
+                    const auto sectionCount = view.u32le(base + (info.is64Bit ? 64 : 48)).value_or(0);
+                    const std::uint64_t sectionEntrySize = info.is64Bit ? 80u : 68u;
+                    const std::uint64_t sectionTableBytes = static_cast<std::uint64_t>(sectionCount) * sectionEntrySize;
+                    if (sectionCount > (std::numeric_limits<std::uint64_t>::max() - minimumSegmentSize) / sectionEntrySize ||
+                        minimumSegmentSize + sectionTableBytes > size) {
+                        diag(info, "MACHO_SECTION_TABLE_SIZE", "Mach-O section table exceeds its load command", base);
+                        break;
+                    }
+                    if (size < minimumSegmentSize + sectionTableBytes) {
+                        diag(info, "MACHO_SECTION_TABLE_TRUNCATED", "Mach-O segment command does not contain all declared sections", base);
+                        break;
+                    }
                     if (!rangeFits(fileOffset, fileSize, image.size()))
                         diag(info, "MACHO_SEGMENT_FILE_RANGE", "Mach-O segment file range extends beyond file", base);
                     if (fileSize > vmSize)
                         diag(info, "MACHO_SEGMENT_SIZE", "Mach-O segment filesize exceeds virtual size", base);
+                    if (vmSize > std::numeric_limits<std::uint64_t>::max() - vmAddress)
+                        diag(info, "MACHO_SEGMENT_VIRTUAL_OVERFLOW", "Mach-O segment virtual address range overflows", base);
+                    if ((protection & ~7u) != 0 || (maxProtection & ~7u) != 0 ||
+                        (protection & ~maxProtection) != 0)
+                        diag(info, "MACHO_SEGMENT_PROTECTION", "Mach-O segment protections are invalid or exceed maximum protections", base);
                     info.sections.push_back({name8(image, base + 8), fileOffset, fileSize, vmAddress, vmSize, (protection & 4u) != 0});
                 }
                 cursor += size;
