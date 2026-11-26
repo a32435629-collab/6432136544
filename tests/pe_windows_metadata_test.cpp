@@ -22,6 +22,7 @@ int main() {
     // Minimal PE32+ image with one .rdata section.
     w16(0, 0x5a4d); w32(0x3c, 0x80); w32(0x80, 0x00004550);
     w16(0x84, 0x8664); w16(0x86, 1); w16(0x94, 240); w16(0x98, 0x20b);
+    w64(0x98 + 24, 0x140000000ull); // ImageBase
     w32(0x98 + 108, 16);
     const std::size_t section = 0x98 + 240;
     pe[section] = '.'; pe[section + 1] = 'r'; pe[section + 2] = 'd';
