@@ -347,6 +347,8 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             std::uint32_t externalSymbolIndex = 0, externalSymbolCount = 0;
             std::uint32_t undefinedSymbolIndex = 0, undefinedSymbolCount = 0;
             bool hasDynamicSymbolTable = false;
+            bool hasTwoLevelHintsCommand = false;
+            std::uint32_t twoLevelHintsOffset = 0, twoLevelHintsCount = 0;
             struct SectionRelocationTable { std::uint32_t offset; std::uint32_t count; std::uint64_t sectionSize; std::size_t diagnosticOffset; };
             std::vector<SectionRelocationTable> sectionRelocationTables;
             std::uint64_t unixThreadEntryPoint = 0;
@@ -541,6 +543,21 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                     externalRelocationCount = view.u32le(base + 68).value_or(0);
                     localRelocationOffset = view.u32le(base + 72).value_or(0);
                     localRelocationCount = view.u32le(base + 76).value_or(0);
+                } else if (command == 0x16u) { // LC_TWOLEVEL_HINTS
+                    const auto base = static_cast<std::size_t>(cursor);
+                    if (size < 16) {
+                        diag(info, "MACHO_TWOLEVEL_HINTS_TRUNCATED",
+                             "LC_TWOLEVEL_HINTS command is smaller than its required fields", base);
+                        break;
+                    }
+                    if (hasTwoLevelHintsCommand) {
+                        diag(info, "MACHO_TWOLEVEL_HINTS_DUPLICATE",
+                             "Mach-O image contains more than one LC_TWOLEVEL_HINTS command", base);
+                        break;
+                    }
+                    hasTwoLevelHintsCommand = true;
+                    twoLevelHintsOffset = view.u32le(base + 8).value_or(0);
+                    twoLevelHintsCount = view.u32le(base + 12).value_or(0);
                 } else if (command == 0x80000028u) { // LC_MAIN
                     const auto base = static_cast<std::size_t>(cursor);
                     if (size < 24) {
@@ -625,6 +642,31 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                             }
                         }
                         info.symbols.push_back({std::move(symbolName), symbolType, sectionIndex, description, value});
+                    }
+                }
+            }
+
+            if (hasTwoLevelHintsCommand) {
+                constexpr std::uint64_t hintEntrySize = 4;
+                const auto hintBytes = static_cast<std::uint64_t>(twoLevelHintsCount) * hintEntrySize;
+                if (!rangeFits(twoLevelHintsOffset, hintBytes, image.size())) {
+                    diag(info, "MACHO_TWOLEVEL_HINTS_RANGE",
+                         "Mach-O two-level hints table extends beyond the file", twoLevelHintsOffset);
+                } else {
+                    info.twoLevelHints.reserve(twoLevelHintsCount);
+                    for (std::uint32_t i = 0; i < twoLevelHintsCount; ++i) {
+                        const auto entry = static_cast<std::size_t>(
+                            static_cast<std::uint64_t>(twoLevelHintsOffset) +
+                            static_cast<std::uint64_t>(i) * hintEntrySize);
+                        const auto raw = view.u32le(entry).value_or(0);
+                        const auto subImage = static_cast<std::uint8_t>(raw >> 24);
+                        const auto tocIndex = raw & 0x00ffffffu;
+                        if (subImage == 0 && tocIndex >= symbolTableOfContentsCount) {
+                            diag(info, "MACHO_TWOLEVEL_HINTS_TOC_INDEX",
+                                 "Mach-O two-level hint references a missing local TOC entry", entry);
+                            continue;
+                        }
+                        info.twoLevelHints.push_back({subImage, tocIndex});
                     }
                 }
             }

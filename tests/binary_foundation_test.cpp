@@ -137,6 +137,18 @@ std::vector<std::uint8_t> makeMachO64WithModuleTable() {
     b[0x195] = 'm'; b[0x196] = 'o'; b[0x197] = 'd'; b[0x198] = 0;
     return b;
 }
+std::vector<std::uint8_t> makeMachO64WithTwoLevelHints() {
+    auto b = makeMachO64WithTOC();
+    put32(b, 16, 5); // segment + LC_MAIN + LC_SYMTAB + LC_DYSYMTAB + LC_TWOLEVEL_HINTS
+    put32(b, 20, 296);
+    const std::size_t hints = 32 + 152 + 24 + 24 + 80;
+    put32(b, hints, 0x16); // LC_TWOLEVEL_HINTS
+    put32(b, hints + 4, 16);
+    put32(b, hints + 8, 0x1b0);
+    put32(b, hints + 12, 1);
+    put32(b, 0x1b0, 0); // sub-image 0, TOC index 0
+    return b;
+}
 std::vector<std::uint8_t> makeMachO64WithInitTermPointers() {
     auto b = makeMachO64();
     const std::size_t section = 32 + 72;
@@ -552,6 +564,30 @@ int main() {
     auto machoLocalIndirectSymbol = analyzeFormat(BinaryImage::fromBytes(std::move(machoLocalIndirectSymbolBytes)));
     assert(machoLocalIndirectSymbol.valid);
     assert(machoLocalIndirectSymbol.indirectSymbols[0] == 0x80000000u);
+
+    auto machoTwoLevelHints = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithTwoLevelHints()));
+    assert(machoTwoLevelHints.format == Format::MachO && machoTwoLevelHints.valid);
+    assert(machoTwoLevelHints.twoLevelHints.size() == 1);
+    assert(machoTwoLevelHints.twoLevelHints[0].subImage == 0);
+    assert(machoTwoLevelHints.twoLevelHints[0].tableOfContentsIndex == 0);
+
+    auto badMachOTwoLevelRangeBytes = makeMachO64WithTwoLevelHints();
+    put32(badMachOTwoLevelRangeBytes, 32 + 152 + 24 + 24 + 80 + 8, 0x1ff);
+    auto badMachOTwoLevelRange = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOTwoLevelRangeBytes)));
+    assert(!badMachOTwoLevelRange.valid);
+    bool foundTwoLevelRange = false;
+    for (const auto& diagnostic : badMachOTwoLevelRange.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_TWOLEVEL_HINTS_RANGE") foundTwoLevelRange = true;
+    assert(foundTwoLevelRange);
+
+    auto badMachOTwoLevelTocBytes = makeMachO64WithTwoLevelHints();
+    put32(badMachOTwoLevelTocBytes, 0x1b0, 1);
+    auto badMachOTwoLevelToc = analyzeFormat(BinaryImage::fromBytes(std::move(badMachOTwoLevelTocBytes)));
+    assert(!badMachOTwoLevelToc.valid);
+    bool foundTwoLevelToc = false;
+    for (const auto& diagnostic : badMachOTwoLevelToc.diagnostics.diagnostics)
+        if (diagnostic.code == "MACHO_TWOLEVEL_HINTS_TOC_INDEX") foundTwoLevelToc = true;
+    assert(foundTwoLevelToc);
 
     auto machoInitTerm = analyzeFormat(BinaryImage::fromBytes(makeMachO64WithInitTermPointers()));
     assert(machoInitTerm.format == Format::MachO && machoInitTerm.valid);
