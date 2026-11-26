@@ -585,37 +585,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                              "LC_CODE_SIGNATURE command is smaller than its required fields", base);
                         break;
                     }
-                    if (hasDyldInfoCommand) {
-                constexpr MachODyldStreamKind kinds[] = {
-                    MachODyldStreamKind::Rebase, MachODyldStreamKind::Bind,
-                    MachODyldStreamKind::WeakBind, MachODyldStreamKind::LazyBind,
-                    MachODyldStreamKind::Export
-                };
-                constexpr const char* rangeCodes[] = {
-                    "MACHO_DYLD_REBASE_RANGE", "MACHO_DYLD_BIND_RANGE",
-                    "MACHO_DYLD_WEAK_BIND_RANGE", "MACHO_DYLD_LAZY_BIND_RANGE",
-                    "MACHO_DYLD_EXPORT_RANGE"
-                };
-                constexpr const char* rangeMessages[] = {
-                    "Mach-O dyld rebase stream extends beyond the file",
-                    "Mach-O dyld bind stream extends beyond the file",
-                    "Mach-O dyld weak-bind stream extends beyond the file",
-                    "Mach-O dyld lazy-bind stream extends beyond the file",
-                    "Mach-O dyld export stream extends beyond the file"
-                };
-                for (std::size_t stream = 0; stream < 5; ++stream) {
-                    const auto offset = dyldStreamFields[stream * 2];
-                    const auto length = dyldStreamFields[stream * 2 + 1];
-                    if (length == 0) continue;
-                    if (!rangeFits(offset, length, image.size())) {
-                        diag(info, rangeCodes[stream], rangeMessages[stream], offset);
-                        continue;
-                    }
-                    info.dyldStreams.push_back({kinds[stream], offset, length});
-                }
-            }
-
-            if (hasCodeSignatureCommand) {
+                    if (hasCodeSignatureCommand) {
                         diag(info, "MACHO_CODE_SIGNATURE_DUPLICATE",
                              "Mach-O image contains more than one LC_CODE_SIGNATURE command", base);
                         break;
@@ -644,6 +614,36 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             }
             if (cursor != commandEnd)
                 diag(info, "MACHO_COMMAND_BYTES", "Mach-O command sizes do not match sizeofcmds", static_cast<std::size_t>(cursor));
+
+            if (hasDyldInfoCommand) {
+                constexpr MachODyldStreamKind kinds[] = {
+                    MachODyldStreamKind::Rebase, MachODyldStreamKind::Bind,
+                    MachODyldStreamKind::WeakBind, MachODyldStreamKind::LazyBind,
+                    MachODyldStreamKind::Export
+                };
+                constexpr const char* rangeCodes[] = {
+                    "MACHO_DYLD_REBASE_RANGE", "MACHO_DYLD_BIND_RANGE",
+                    "MACHO_DYLD_WEAK_BIND_RANGE", "MACHO_DYLD_LAZY_BIND_RANGE",
+                    "MACHO_DYLD_EXPORT_RANGE"
+                };
+                constexpr const char* rangeMessages[] = {
+                    "Mach-O dyld rebase stream extends beyond the file",
+                    "Mach-O dyld bind stream extends beyond the file",
+                    "Mach-O dyld weak-bind stream extends beyond the file",
+                    "Mach-O dyld lazy-bind stream extends beyond the file",
+                    "Mach-O dyld export stream extends beyond the file"
+                };
+                for (std::size_t stream = 0; stream < 5; ++stream) {
+                    const auto offset = dyldStreamFields[stream * 2];
+                    const auto length = dyldStreamFields[stream * 2 + 1];
+                    if (length == 0) continue;
+                    if (!rangeFits(offset, length, image.size())) {
+                        diag(info, rangeCodes[stream], rangeMessages[stream], offset);
+                        continue;
+                    }
+                    info.dyldStreams.push_back({kinds[stream], offset, length});
+                }
+            }
 
             if (hasDynamicSymbolTable) {
                 const auto validateSymbolRange = [&](std::uint32_t index, std::uint32_t count, const char* code, const char* description) {
