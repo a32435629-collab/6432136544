@@ -35,7 +35,7 @@ bool hasDiagnostic(const lulz::binary::FormatInfo& info, const char* code) {
 }
 int main() {
     using namespace lulz::binary;
-    auto valid=analyzeFormat(BinaryImage::fromBytes(makeImage({0x11,0x20,0x80,0x51,0x00})));
+    auto valid=analyzeFormat(BinaryImage::fromBytes(makeImage({0x11,0x20,0x80,0x01,0x51,0x00})));
     assert(valid.format==Format::MachO && valid.valid);
     assert(valid.rebases.size()==1);
     assert(valid.rebases[0].type==1 && valid.rebases[0].segmentIndex==0);
