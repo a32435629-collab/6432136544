@@ -49,11 +49,30 @@ int main() {
     using namespace lulz::binary;
     auto img = BinaryImage::fromBytes({0x34,0x12,0x78,0x56,0,0,0,0});
     BinaryView view(img);
+    assert(view.u8(0).value() == 0x34);
     assert(view.u16le(0).value() == 0x1234);
     assert(view.u32le(0).value() == 0x56781234);
+    assert(view.u32be(0).value() == 0x34127856);
     assert(view.u64le(0).has_value());
     assert(!view.u64le(1).has_value());
+    assert(view.i16le(0).value() == 0x1234);
+    assert(!view.i32be(6).has_value());
     assert(img.contains(0,8) && !img.contains(1,8));
+    assert(view.bytes(2, 2)->size() == 2);
+    assert(!view.bytes(7, 2).has_value());
+
+    auto textImage = BinaryImage::fromBytes({'h','e','l','l','o',0,'x'});
+    BinaryView textView(textImage);
+    assert(textView.fixedString(0, 5).value() == "hello");
+    assert(textView.cString(0, 7).value() == "hello");
+    assert(!textView.cString(0, 5).has_value());
+    assert(!textView.fixedString(6, 2).has_value());
+
+    auto signedImage = BinaryImage::fromBytes({0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff});
+    BinaryView signedView(signedImage);
+    assert(signedView.i64le(0).value() == -1);
+    assert(signedView.i64be(0).value() == -1);
+
     assert(validateImage(img).valid);
     assert(!validateImage(BinaryImage::fromBytes({})).valid);
 
