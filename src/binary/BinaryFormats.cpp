@@ -1086,6 +1086,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                         if (!info.diagnostics.valid) break;
                     }
                 }
+            }
 
             if (hasDynamicSymbolTable) {
                 const auto validateSymbolRange = [&](std::uint32_t index, std::uint32_t count, const char* code, const char* description) {
