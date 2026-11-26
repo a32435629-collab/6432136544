@@ -989,7 +989,6 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 const auto exportSize = dyldStreamFields[9];
                 if (exportSize != 0 && rangeFits(exportOffset, exportSize, image.size())) {
                     constexpr std::size_t maxExportNodes = 100000;
-                    const std::uint64_t exportEnd = static_cast<std::uint64_t>(exportOffset) + exportSize;
                     std::unordered_set<std::uint64_t> visited;
                     std::vector<std::pair<std::uint64_t, std::string>> pending;
                     pending.push_back({0, {}});
