@@ -174,6 +174,7 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_builder_tests
             lulz_subsystem_tests
             lulz_ai_tests
+            lulz_program_intelligence_tests
             lulz_pe_windows_metadata_tests
             lulz_macho_dyld_rebase_tests
             lulz_macho_dyld_bind_tests
@@ -187,6 +188,7 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_builder_tests
             lulz_subsystem_tests
             lulz_ai_tests
+            lulz_program_intelligence_tests
             lulz_pe_windows_metadata_tests
             lulz_macho_dyld_rebase_tests
         )
