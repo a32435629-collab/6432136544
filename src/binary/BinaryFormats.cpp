@@ -148,6 +148,61 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                                      *virtualSize, (*characteristics & 0x20000000u) != 0});
         }
         validateSections(info, image);
+
+        // PE data-directory entries (except SECURITY/CERTIFICATE_TABLE) use
+        // RVAs. Validate the complete range, not only its first byte.
+        for (const auto& directory : info.directories) {
+            if (directory.address == 0 && directory.size == 0) continue;
+            if (directory.address == 0 || directory.size == 0) {
+                diag(info, "PE_DIRECTORY_INCOMPLETE",
+                     "Data directory has only one of address and size set",
+                     numberOffset + static_cast<std::size_t>(directory.index) * 8);
+                continue;
+            }
+
+            if (directory.index == 4) { // IMAGE_DIRECTORY_ENTRY_SECURITY is a file offset.
+                if (!rangeFits(directory.address, directory.size, image.size())) {
+                    diag(info, "PE_SECURITY_DIRECTORY_RANGE",
+                         "Certificate table extends beyond the file",
+                         static_cast<std::size_t>(std::min<std::uint64_t>(directory.address, image.size())));
+                }
+                continue;
+            }
+
+            bool mapped = directory.address < 0x1000 &&
+                          rangeFits(directory.address, directory.size, image.size());
+            for (const auto& section : info.sections) {
+                if (directory.address < section.address) continue;
+                const auto delta = directory.address - section.address;
+                if (delta <= section.size && directory.size <= section.size - delta &&
+                    rangeFits(section.offset + delta, directory.size, image.size())) {
+                    mapped = true;
+                    break;
+                }
+            }
+            if (!mapped) {
+                diag(info, "PE_DIRECTORY_UNMAPPED",
+                     "Data directory RVA range is not fully backed by file data",
+                     static_cast<std::size_t>(std::min<std::uint64_t>(directory.address, image.size())));
+            }
+        }
+
+        if (info.entryPoint != 0) {
+            bool entryMapped = info.entryPoint < 0x1000 &&
+                               rangeFits(info.entryPoint, 1, image.size());
+            for (const auto& section : info.sections) {
+                if (info.entryPoint >= section.address &&
+                    info.entryPoint - section.address < section.size) {
+                    entryMapped = true;
+                    break;
+                }
+            }
+            if (!entryMapped)
+                diag(info, "PE_ENTRYPOINT_UNMAPPED",
+                     "Entry point RVA is not backed by file data",
+                     static_cast<std::size_t>(std::min<std::uint64_t>(info.entryPoint, image.size())));
+        }
+
         info.valid = info.diagnostics.valid;
         return info;
     }

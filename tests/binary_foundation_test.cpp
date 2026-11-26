@@ -145,6 +145,21 @@ int main() {
     assert(malformedPe.format == Format::PE && !malformedPe.valid);
     assert(!malformedPe.diagnostics.diagnostics.empty());
 
+    auto badDirectoryBytes = makePe();
+    put32(badDirectoryBytes, 0x98 + 112, 0x9000); // export directory RVA
+    put32(badDirectoryBytes, 0x98 + 116, 0x20);
+    auto badDirectory = analyzeFormat(BinaryImage::fromBytes(std::move(badDirectoryBytes)));
+    assert(badDirectory.format == Format::PE && !badDirectory.valid);
+    bool foundUnmappedDirectory = false;
+    for (const auto& diagnostic : badDirectory.diagnostics.diagnostics)
+        if (diagnostic.code == "PE_DIRECTORY_UNMAPPED") foundUnmappedDirectory = true;
+    assert(foundUnmappedDirectory);
+
+    auto badEntryBytes = makePe();
+    put32(badEntryBytes, 0x98 + 16, 0x9000);
+    auto badEntry = analyzeFormat(BinaryImage::fromBytes(std::move(badEntryBytes)));
+    assert(!badEntry.valid);
+
     auto elf = analyzeFormat(BinaryImage::fromBytes(makeElf64()));
     assert(elf.format == Format::ELF && elf.valid && elf.is64Bit);
     assert(elf.entryPoint == 0x400080 && elf.sections.size() == 1);
