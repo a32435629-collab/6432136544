@@ -258,7 +258,7 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
             const auto type = view.u32le(p);
             if (!type) { diag(info, "ELF_PH_TRUNCATED", "Program header is truncated", p); break; }
             if (*type != 1) continue; // PT_LOAD
-            std::uint64_t fileOffset = 0, address = 0, fileSize = 0, memorySize = 0;
+            std::uint64_t fileOffset = 0, address = 0, fileSize = 0, memorySize = 0, alignment = 0;
             std::uint32_t flags = 0;
             if (info.is64Bit) {
                 flags = view.u32le(p + 4).value_or(0);
@@ -266,18 +266,47 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
                 address = view.u64le(p + 16).value_or(0);
                 fileSize = view.u64le(p + 32).value_or(0);
                 memorySize = view.u64le(p + 40).value_or(0);
+                alignment = view.u64le(p + 48).value_or(0);
             } else {
                 fileOffset = view.u32le(p + 4).value_or(0);
                 address = view.u32le(p + 8).value_or(0);
                 fileSize = view.u32le(p + 16).value_or(0);
                 memorySize = view.u32le(p + 20).value_or(0);
                 flags = view.u32le(p + 24).value_or(0);
+                alignment = view.u32le(p + 28).value_or(0);
             }
+
             if (fileSize > memorySize)
                 diag(info, "ELF_LOAD_SIZE_INVALID", "PT_LOAD p_filesz exceeds p_memsz", p);
             if (!rangeFits(fileOffset, fileSize, image.size()))
                 diag(info, "ELF_LOAD_FILE_RANGE", "PT_LOAD file range extends beyond file", p);
+            if (memorySize > std::numeric_limits<std::uint64_t>::max() - address)
+                diag(info, "ELF_LOAD_VIRTUAL_OVERFLOW", "PT_LOAD virtual address range overflows", p);
+            if ((flags & ~7u) != 0)
+                diag(info, "ELF_LOAD_FLAGS_INVALID", "PT_LOAD contains unsupported permission flag bits", p);
+            if (alignment > 1) {
+                if ((alignment & (alignment - 1)) != 0)
+                    diag(info, "ELF_LOAD_ALIGN_INVALID", "PT_LOAD alignment is not a power of two", p);
+                else if ((address % alignment) != (fileOffset % alignment))
+                    diag(info, "ELF_LOAD_ALIGN_MISMATCH", "PT_LOAD virtual address and file offset are incongruent", p);
+            }
+
             info.sections.push_back({"LOAD", fileOffset, fileSize, address, memorySize, (flags & 1u) != 0});
+        }
+
+        if (info.entryPoint != 0) {
+            bool entryInExecutableLoad = false;
+            for (const auto& segment : info.sections) {
+                if (segment.executable && info.entryPoint >= segment.address &&
+                    info.entryPoint - segment.address < segment.virtualSize) {
+                    entryInExecutableLoad = true;
+                    break;
+                }
+            }
+            if (!entryInExecutableLoad)
+                diag(info, "ELF_ENTRYPOINT_NOT_EXECUTABLE",
+                     "ELF entry point is not inside an executable PT_LOAD segment",
+                     0);
         }
         info.valid = info.diagnostics.valid;
         return info;

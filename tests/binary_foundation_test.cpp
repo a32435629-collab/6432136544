@@ -170,6 +170,26 @@ int main() {
     auto badElf = analyzeFormat(BinaryImage::fromBytes(std::move(badElfBytes)));
     assert(badElf.format == Format::ELF && !badElf.valid);
 
+    auto oversizedLoadBytes = makeElf64();
+    put64(oversizedLoadBytes, 64 + 32, 0x300); // p_filesz > p_memsz
+    auto oversizedLoad = analyzeFormat(BinaryImage::fromBytes(std::move(oversizedLoadBytes)));
+    assert(!oversizedLoad.valid);
+
+    auto invalidAlignBytes = makeElf64();
+    put64(invalidAlignBytes, 64 + 48, 3); // p_align must be 0, 1, or a power of two
+    auto invalidAlign = analyzeFormat(BinaryImage::fromBytes(std::move(invalidAlignBytes)));
+    assert(!invalidAlign.valid);
+
+    auto badElfEntryBytes = makeElf64();
+    put64(badElfEntryBytes, 24, 0x500000); // outside executable PT_LOAD
+    auto badElfEntry = analyzeFormat(BinaryImage::fromBytes(std::move(badElfEntryBytes)));
+    assert(!badElfEntry.valid);
+
+    auto badVirtualRangeBytes = makeElf64();
+    put64(badVirtualRangeBytes, 64 + 16, 0xfffffffffffffff0ull);
+    auto badVirtualRange = analyzeFormat(BinaryImage::fromBytes(std::move(badVirtualRangeBytes)));
+    assert(!badVirtualRange.valid);
+
     auto payloadImage = BinaryImage::fromBytes({0,0,'M','Z',0,0,0x50,0x4b,3,4,0x1f,0x8b,0,0});
     const auto payloads = detectEmbeddedPayloads(payloadImage);
     assert(payloads.size() == 3);
