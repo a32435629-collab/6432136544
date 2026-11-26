@@ -98,6 +98,7 @@ std::vector<std::uint8_t> makeMachO64WithRelocations() {
 std::vector<std::uint8_t> makeMachO64WithSectionRelocation() {
     auto b = makeMachO64WithSymtab();
     const std::size_t section = 32 + 72;
+    put64(b, section + 40, 0x100); // section size for relocation-address validation
     put32(b, section + 56, 0x1a0); // section reloff
     put32(b, section + 60, 1); // section nreloc
     put32(b, 0x1a0, 0x80); // r_address within the section
