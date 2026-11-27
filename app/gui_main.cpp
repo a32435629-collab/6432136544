@@ -107,7 +107,7 @@ void runConsoleCommand() {
                 auto* payload=new std::wstring(wide);PostMessageW(g_window,WM_CONSOLE_OUTPUT,0,reinterpret_cast<LPARAM>(payload));
             }
             WaitForSingleObject(pi.hProcess,INFINITE);CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
-        } else {auto* payload=new std::wstring(L"Не удалось запустить команду.\r\n");PostMessageW(g_window,WM_CONSOLE_OUTPUT,0,reinterpret_cast LPARAM(payload));}
+        } else {auto* payload=new std::wstring(L"Не удалось запустить команду.\r\n");PostMessageW(g_window,WM_CONSOLE_OUTPUT,0,reinterpret_cast<LPARAM>(payload));}
         if(writePipe)CloseHandle(writePipe);CloseHandle(readPipe);PostMessageW(g_window,WM_CONSOLE_DONE,0,0);
     }).detach();
     SetWindowTextW(g_consoleInput,L"");
@@ -277,7 +277,7 @@ void layout(HWND w) {
     MoveWindow(g_consoleInput,260,height-95,std::max(100,width-390),36,TRUE);
     MoveWindow(g_consoleRun,width-120,height-95,90,36,TRUE);
     MoveWindow(g_status, 260, height-38, width-290, 24, TRUE);
-    for(int i=0;i<5;++i) MoveWindow(g_nav[i], 20, 145+i*52, 210, 42, TRUE);
+    for(int i=0;i<7;++i) MoveWindow(g_nav[i], 20, 145+i*52, 210, 42, TRUE);
 }
 LRESULT CALLBACK wndProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     switch(msg) {
