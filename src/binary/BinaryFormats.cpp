@@ -1844,45 +1844,99 @@ FormatInfo analyzeFormat(const BinaryImage& image) {
 
 std::optional<std::uint64_t> rvaToOffset(const FormatInfo& info, std::uint64_t rva) {
     if (info.format != Format::PE) return std::nullopt;
+    // Header RVAs map directly only when there is no section claiming the range.
+    std::optional<std::uint64_t> result;
     for (const auto& section : info.sections) {
-        const auto span = std::max(section.size, section.virtualSize);
+        const auto span = std::max(section.virtualSize, section.size);
         if (rva < section.address || rva - section.address >= span) continue;
         const auto delta = rva - section.address;
+        // Virtual tails (including zero-filled BSS) have no file offset.
         if (delta >= section.size || section.offset > std::numeric_limits<std::uint64_t>::max() - delta)
             return std::nullopt;
-        return section.offset + delta;
+        if (result) return std::nullopt; // ambiguous overlapping section mapping
+        result = section.offset + delta;
     }
+    if (result) return result;
     return rva < 0x1000 ? std::optional<std::uint64_t>(rva) : std::nullopt;
 }
 
 std::optional<std::uint64_t> offsetToRva(const FormatInfo& info, std::uint64_t offset) {
+    std::optional<std::uint64_t> result;
     for (const auto& section : info.sections) {
-        if (offset >= section.offset && offset - section.offset < section.size) {
-            const auto delta = offset - section.offset;
-            if (section.address > std::numeric_limits<std::uint64_t>::max() - delta) return std::nullopt;
-            return section.address + delta;
-        }
+        if (offset < section.offset || offset - section.offset >= section.size) continue;
+        const auto delta = offset - section.offset;
+        if (section.address > std::numeric_limits<std::uint64_t>::max() - delta) return std::nullopt;
+        const auto candidate = section.address + delta;
+        if (result) return std::nullopt; // ambiguous raw-file mapping
+        result = candidate;
     }
+    if (result) return result;
     return offset < 0x1000 ? std::optional<std::uint64_t>(offset) : std::nullopt;
 }
 
 std::optional<std::uint64_t> vaToRva(const FormatInfo& info, std::uint64_t va) {
     if (va < info.imageBase) return std::nullopt;
-    return va - info.imageBase;
+    const auto rva = va - info.imageBase;
+    if (info.format == Format::PE && rva > std::numeric_limits<std::uint32_t>::max())
+        return std::nullopt;
+    return rva;
 }
 
 std::vector<EmbeddedPayload> detectEmbeddedPayloads(const BinaryImage& image) {
     std::vector<EmbeddedPayload> payloads;
-    const auto& bytes = image.bytes();
-    for (std::size_t i = 0; i + 4 <= bytes.size(); ++i) {
-        if (bytes[i] == 'M' && bytes[i + 1] == 'Z')
-            payloads.push_back({"PE", i});
-        else if (bytes[i] == 0x7f && bytes[i + 1] == 'E' && bytes[i + 2] == 'L' && bytes[i + 3] == 'F')
-            payloads.push_back({"ELF", i});
-        else if (bytes[i] == 0x50 && bytes[i + 1] == 0x4b && bytes[i + 2] == 3 && bytes[i + 3] == 4)
-            payloads.push_back({"ZIP", i});
-        else if (bytes[i] == 0x1f && bytes[i + 1] == 0x8b)
-            payloads.push_back({"GZIP", i});
+    const auto& b = image.bytes();
+    const auto has = [&](std::size_t p, std::initializer_list<std::uint8_t> sig) {
+        if (p > b.size() || sig.size() > b.size() - p) return false;
+        std::size_t n = p;
+        for (auto v : sig) if (b[n++] != v) return false;
+        return true;
+    };
+    const auto add = [&](const char* kind, std::size_t p) { payloads.push_back({kind, p}); };
+    for (std::size_t i = 0; i < b.size(); ++i) {
+        // Validate signatures with their minimum structural bytes where practical,
+        // reducing noise from arbitrary byte sequences in executable data.
+        if (has(i, {'M','Z'}) && i + 0x40 <= b.size()) {
+            const auto pe = static_cast<std::uint64_t>(b[i+0x3c]) |
+                (static_cast<std::uint64_t>(b[i+0x3d]) << 8) |
+                (static_cast<std::uint64_t>(b[i+0x3e]) << 16) |
+                (static_cast<std::uint64_t>(b[i+0x3f]) << 24);
+            if (pe <= b.size() - i && pe + 4 <= b.size() - i && has(i+static_cast<std::size_t>(pe), {'P','E',0,0}))
+                add("PE",i);
+        }
+        if (has(i, {0x7f,'E','L','F'}) && i+16<=b.size() && (b[i+4]==1||b[i+4]==2) && (b[i+5]==1||b[i+5]==2)) add("ELF",i);
+        if (has(i, {0x50,0x4b,0x03,0x04}) && i+30<=b.size()) add("ZIP",i);
+        if (has(i, {0x1f,0x8b,0x08})) add("GZIP",i);
+        if (has(i, {'P','K',0x05,0x06}) && i+22<=b.size()) add("ZIP",i);
+        if (has(i, {'P','K',0x07,0x08})) add("ZIP",i);
+        if (has(i, {'7','z',0xbc,0xaf,0x27,0x1c})) add("7Z",i);
+        if (has(i, {'R','a','r','!','\x1a',0x07,0x00})) add("RAR",i);
+        if (has(i, {'R','a','r','!','\x1a',0x07,0x01,0x00})) add("RAR",i);
+        if (has(i, {'%','P','D','F','-'})) add("PDF",i);
+        if (has(i, {0x89,'P','N','G',0x0d,0x0a,0x1a,0x0a})) add("PNG",i);
+        if (has(i, {0xff,0xd8,0xff})) add("JPEG",i);
+        if (has(i, {'G','I','F','8','7','a'}) || has(i, {'G','I','F','8','9','a'})) add("GIF",i);
+        if (has(i, {'B','M'})) add("BMP",i);
+        if (has(i, {'I','I',0x2a,0x00}) || has(i, {'M','M',0x00,0x2a})) add("TIFF",i);
+        if (has(i, {'O','T','T','O'})) add("FONT-OTF",i);
+        if (has(i, {0x00,0x01,0x00,0x00})) add("FONT-TTF",i);
+        if (has(i, {'w','O','F','F'})) add("FONT-WOFF",i);
+        if (has(i, {'w','O','F','F','2'})) add("FONT-WOFF2",i);
+        if (has(i, {'S','Q','L','i','t','e',' ','f','o','r','m','a','t',' ','3',0})) add("SQLITE",i);
+        if (has(i, {0x42,0x5a,0x68})) add("BZIP2",i);
+        if (has(i, {0xfd,'7','z','X','Z',0x00})) add("XZ",i);
+        if (has(i, {0x28,0xb5,0x2f,0xfd})) add("ZSTD",i);
+        if (has(i, {0x04,0x22,0x4d,0x18})) add("LZ4",i);
+        if (has(i, {'M','S','C','F'})) add("CAB",i);
+        if (has(i, {0x50,0x4b,0x03,0x04})) { /* ZIP already structurally gated above */ }
+        if (has(i, {'R','I','F','F'}) && i+12<=b.size() && has(i+8, {'W','E','B','P'})) add("WEBP",i);
+        if (has(i, {'I','D','3'})) add("MP3",i);
+        if (has(i, {0xff,0xfb}) || has(i, {0xff,0xf3}) || has(i, {0xff,0xf2})) add("MP3",i);
+        if (has(i, {'O','g','g','S'})) add("OGG",i);
+        if (has(i, {'f','L','a','C'})) add("FLAC",i);
+        if (has(i, {'R','I','F','F'}) && i+12<=b.size() && has(i+8, {'W','A','V','E'})) add("WAV",i);
+        if (has(i, {0x00,0x00,0x01,0x00})) add("ICO",i);
+        if (has(i, {0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1})) add("OLE",i);
+        if (has(i, {'u','s','t','a','r'})) add("TAR",i);
     }
     return payloads;
 }
