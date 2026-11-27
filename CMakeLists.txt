@@ -199,6 +199,7 @@ if(DLL_LULZ_BUILD_TESTS)
             lulz_program_intelligence_tests
             lulz_pe_windows_metadata_tests
             lulz_macho_dyld_rebase_tests
+            lulz_engine_intelligence_tests
         )
             target_compile_options(${test_target} PRIVATE -UNDEBUG)
         endforeach()
