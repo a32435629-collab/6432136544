@@ -2,6 +2,7 @@
 
 #include "lulz/formats/pe/PEParser.hpp"
 
+#include <cstddef>
 #include <span>
 #include <string>
 #include <vector>
