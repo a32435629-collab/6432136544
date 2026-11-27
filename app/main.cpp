@@ -669,13 +669,13 @@ int main(int argc, char** argv) {
         auto pe = lulz::parsePE(bytes);
         if (!pe) {
             std::cerr << "Engine analysis requires a valid PE image: "
-                      << pe.error() << '\\n';
+                      << pe.error() << '\n';
             return 2;
         }
 
         auto imports = lulz::parsePEImports(bytes, pe.value());
         if (!imports) {
-            std::cerr << "Import parsing failed: " << imports.error() << '\\n';
+            std::cerr << "Import parsing failed: " << imports.error() << '\n';
             return 2;
         }
 
@@ -689,7 +689,7 @@ int main(int argc, char** argv) {
                 extended.value().delayImports.end());
         } else {
             std::cerr << "[WARN] Delay imports unavailable: "
-                      << extended.error() << '\\n';
+                      << extended.error() << '\n';
         }
 
         const auto report = lulz::engine::analyzeEngineImports(allImports, delayCount);
@@ -698,29 +698,29 @@ int main(int argc, char** argv) {
             const std::string output = lulz::engine::engineReportToJson(report);
             if (argc >= 5) {
                 if (!writeTextFile(argv[4], output)) {
-                    std::cerr << "Cannot write engine report: " << argv[4] << '\\n';
+                    std::cerr << "Cannot write engine report: " << argv[4] << '\n';
                     return 1;
                 }
-                std::cout << "Engine report written: " << argv[4] << '\\n';
+                std::cout << "Engine report written: " << argv[4] << '\n';
             } else {
                 std::cout << output;
             }
             return 0;
         }
 
-        std::cout << "GAME ENGINE INTELLIGENCE\\n"
+        std::cout << "GAME ENGINE INTELLIGENCE\n"
                   << "Static imports: " << report.importCount
-                  << " | Delay imports: " << report.delayImportCount << '\\n'
+                  << " | Delay imports: " << report.delayImportCount << '\n'
                   << "Dynamic loading indicators: "
-                  << (report.supportsDynamicLoading ? "yes" : "not detected") << '\\n';
+                  << (report.supportsDynamicLoading ? "yes" : "not detected") << '\n';
         for (const auto& signal : report.signals)
             std::cout << "[" << signal.subsystem << "] " << signal.name
                       << " | evidence: " << signal.evidence
-                      << " | confidence: " << signal.confidence << '\\n';
+                      << " | confidence: " << signal.confidence << '\n';
         if (report.signals.empty())
-            std::cout << "No known subsystem signatures found in the import tables.\\n";
+            std::cout << "No known subsystem signatures found in the import tables.\n";
         std::cout << "Note: imports are static evidence; dynamically loaded APIs and "
-                     "other process modules may not appear here.\\n";
+                     "other process modules may not appear here.\n";
         return 0;
     }
 
