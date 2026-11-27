@@ -1895,13 +1895,10 @@ std::vector<EmbeddedPayload> detectEmbeddedPayloads(const BinaryImage& image) {
     for (std::size_t i = 0; i < b.size(); ++i) {
         // Validate signatures with their minimum structural bytes where practical,
         // reducing noise from arbitrary byte sequences in executable data.
-        if (has(i, {'M','Z'}) && i + 0x40 <= b.size()) {
-            const auto pe = static_cast<std::uint64_t>(b[i+0x3c]) |
-                (static_cast<std::uint64_t>(b[i+0x3d]) << 8) |
-                (static_cast<std::uint64_t>(b[i+0x3e]) << 16) |
-                (static_cast<std::uint64_t>(b[i+0x3f]) << 24);
-            if (pe <= b.size() - i && pe + 4 <= b.size() - i && has(i+static_cast<std::size_t>(pe), {'P','E',0,0}))
-                add("PE",i);
+        if (has(i, {'M','Z'})) {
+            // Preserve detection of DOS/PE-like payload candidates even when
+            // embedded headers are incomplete; consumers can inspect the offset.
+            add("PE",i);
         }
         if (has(i, {0x7f,'E','L','F'}) && i+16<=b.size() && (b[i+4]==1||b[i+4]==2) && (b[i+5]==1||b[i+5]==2)) add("ELF",i);
         if (has(i, {0x50,0x4b,0x03,0x04}) && i+30<=b.size()) add("ZIP",i);
