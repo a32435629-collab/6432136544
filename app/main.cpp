@@ -51,7 +51,7 @@ static void usage() {
         << "  functions <file> find x64 functions\n"
         << "  unwind <file> [--json] parse x64 UNWIND_INFO\n"
         << "  analyze <file> [--json [output.json]] full analysis\n"
-        << "  ai <file> [--model checkpoint.lznn | --openai | --deepseek | --groq] static + AI analysis\n";
+        << "  ai <file> [--model checkpoint.lznn | --openai | --deepseek | --groq] static + AI analysis\\n"\n        << "  engine <file> [--json [output.json]] classify PE engine subsystems\\n";
 }
 
 // ==========================================
