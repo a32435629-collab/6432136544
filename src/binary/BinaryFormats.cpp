@@ -34,8 +34,9 @@ void validateSections(FormatInfo& info, const BinaryImage& image) {
         if (!rangeFits(section.offset, section.size, image.size())) {
             diag(info, "SECTION_FILE_RANGE", "Section data extends beyond the file", static_cast<std::size_t>(std::min<std::uint64_t>(section.offset, image.size())));
         }
-        if (section.virtualSize != 0 &&
-            section.address > std::numeric_limits<std::uint64_t>::max() - section.virtualSize) {
+        const auto virtualSpan = std::max(section.virtualSize, section.size);
+        if (virtualSpan != 0 &&
+            section.address > std::numeric_limits<std::uint64_t>::max() - virtualSpan) {
             diag(info, "SECTION_VIRTUAL_OVERFLOW", "Section virtual address range overflows", 0);
         }
         for (std::size_t j = 0; j < i; ++j) {
@@ -44,7 +45,13 @@ void validateSections(FormatInfo& info, const BinaryImage& image) {
                 previous.offset <= std::numeric_limits<std::uint64_t>::max() - previous.size &&
                 section.offset < previous.offset + previous.size) {
                 diag(info, "SECTION_RAW_OVERLAP", "Section raw file ranges overlap", static_cast<std::size_t>(section.offset));
-                break;
+            }
+            const auto previousSpan = std::max(previous.virtualSize, previous.size);
+            if (virtualSpan && previousSpan &&
+                previous.address <= std::numeric_limits<std::uint64_t>::max() - previousSpan &&
+                section.address < previous.address + previousSpan &&
+                previous.address < section.address + virtualSpan) {
+                diag(info, "SECTION_VIRTUAL_OVERLAP", "Section virtual address ranges overlap", 0);
             }
         }
     }
