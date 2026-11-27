@@ -104,7 +104,7 @@ void runConsoleCommand() {
             while(ReadFile(readPipe,bytes,sizeof(bytes),&got,nullptr)&&got){
                 int n=MultiByteToWideChar(CP_OEMCP,0,bytes,(int)got,nullptr,0);std::wstring wide(n,L'\\0');
                 if(n)MultiByteToWideChar(CP_OEMCP,0,bytes,(int)got,wide.data(),n);
-                auto* payload=new std::wstring(wide);PostMessageW(g_window,WM_CONSOLE_OUTPUT,0,reinterpret_cast LPARAM(payload));
+                auto* payload=new std::wstring(wide);PostMessageW(g_window,WM_CONSOLE_OUTPUT,0,reinterpret_cast<LPARAM>(payload));
             }
             WaitForSingleObject(pi.hProcess,INFINITE);CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
         } else {auto* payload=new std::wstring(L"Не удалось запустить команду.\r\n");PostMessageW(g_window,WM_CONSOLE_OUTPUT,0,reinterpret_cast LPARAM(payload));}
@@ -303,7 +303,7 @@ LRESULT CALLBACK wndProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         for(HWND h:g_nav) SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
         SendMessageW(GetDlgItem(w,ID_OPEN),WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
         SendMessageW(g_content,EM_SETLIMITTEXT,16*1024*1024,0);
-        layout(w); return 0;
+        layout(w); showPage(0); return 0;
     }
     case WM_PAINT: {
         PAINTSTRUCT ps{}; HDC dc=BeginPaint(w,&ps); RECT r{}; GetClientRect(w,&r);
