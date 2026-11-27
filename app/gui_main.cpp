@@ -16,6 +16,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #pragma comment(lib, "Comctl32.lib")
@@ -29,6 +30,14 @@ constexpr int ID_NAV_SECTIONS = 1103;
 constexpr int ID_NAV_IMPORTS = 1104;
 constexpr int ID_NAV_FUNCTIONS = 1105;
 constexpr int ID_CONTENT = 1201;
+constexpr int ID_NAV_BUILDER = 1106;
+constexpr int ID_NAV_CONSOLE = 1107;
+constexpr int ID_CONSOLE_OUTPUT = 1301;
+constexpr int ID_CONSOLE_INPUT = 1302;
+constexpr int ID_CONSOLE_RUN = 1303;
+constexpr int ID_BUILDER_TEXT = 1304;
+constexpr UINT WM_CONSOLE_OUTPUT = WM_APP + 10;
+constexpr UINT WM_CONSOLE_DONE = WM_APP + 11;
 constexpr COLORREF BG = RGB(17, 22, 31);
 constexpr COLORREF PANEL = RGB(25, 32, 44);
 constexpr COLORREF TEXT = RGB(232, 238, 247);
@@ -36,7 +45,10 @@ constexpr COLORREF MUTED = RGB(151, 164, 183);
 constexpr COLORREF ACCENT = RGB(79, 145, 255);
 
 HWND g_window{}, g_content{}, g_title{}, g_subtitle{}, g_file{}, g_status{};
-HWND g_nav[5]{};
+HWND g_nav[7]{};
+HWND g_consoleOutput{}, g_consoleInput{}, g_consoleRun{}, g_builderText{};
+bool g_consoleRunning=false;
+std::wstring g_consoleCommand;
 HFONT g_font{}, g_fontBold{};
 std::wstring g_path;
 std::wstring g_page = L"Обзор";
@@ -63,6 +75,42 @@ std::wstring hex32(std::uint32_t n) {
 }
 std::wstring hex64(std::uint64_t n) {
     std::wostringstream s; s << L"0x" << std::uppercase << std::hex << n; return s.str();
+}
+void appendConsole(const std::wstring& value) {
+    if (!g_consoleOutput) return;
+    const auto len=GetWindowTextLengthW(g_consoleOutput);
+    SendMessageW(g_consoleOutput,EM_SETSEL,len,len);
+    SendMessageW(g_consoleOutput,EM_REPLACESEL,FALSE,reinterpret_cast<LPARAM>(value.c_str()));
+    SendMessageW(g_consoleOutput,EM_SCROLLCARET,0,0);
+}
+void runConsoleCommand() {
+    if (g_consoleRunning || !g_consoleInput) return;
+    wchar_t cmd[4096]{}; GetWindowTextW(g_consoleInput,cmd,4096);
+    if (!cmd[0]) return;
+    g_consoleRunning=true; EnableWindow(g_consoleRun,FALSE);
+    appendConsole(L"\r\n> "+std::wstring(cmd)+L"\r\n");
+    std::wstring command=cmd;
+    std::thread([command]() {
+        SECURITY_ATTRIBUTES sa{sizeof(sa),nullptr,TRUE}; HANDLE readPipe{},writePipe{};
+        if(!CreatePipe(&readPipe,&writePipe,&sa,0)){PostMessageW(g_window,WM_CONSOLE_DONE,0,0);return;}
+        SetHandleInformation(readPipe,HANDLE_FLAG_INHERIT,0);
+        STARTUPINFOW si{};si.cb=sizeof(si);si.dwFlags=STARTF_USESTDHANDLES|STARTF_USESHOWWINDOW;si.wShowWindow=SW_HIDE;
+        si.hStdOutput=writePipe;si.hStdError=writePipe;si.hStdInput=GetStdHandle(STD_INPUT_HANDLE);
+        PROCESS_INFORMATION pi{};
+        std::wstring full=L"cmd.exe /D /S /C \""+command+L"\"";
+        std::vector<wchar_t> buffer(full.begin(),full.end());buffer.push_back(0);
+        if(CreateProcessW(nullptr,buffer.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi)){
+            CloseHandle(writePipe);writePipe=nullptr;char bytes[4096];DWORD got{};
+            while(ReadFile(readPipe,bytes,sizeof(bytes),&got,nullptr)&&got){
+                int n=MultiByteToWideChar(CP_OEMCP,0,bytes,(int)got,nullptr,0);std::wstring wide(n,L'\\0');
+                if(n)MultiByteToWideChar(CP_OEMCP,0,bytes,(int)got,wide.data(),n);
+                auto* payload=new std::wstring(wide);PostMessageW(g_window,WM_CONSOLE_OUTPUT,0,reinterpret_cast LPARAM(payload));
+            }
+            WaitForSingleObject(pi.hProcess,INFINITE);CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
+        } else {auto* payload=new std::wstring(L"Не удалось запустить команду.\r\n");PostMessageW(g_window,WM_CONSOLE_OUTPUT,0,reinterpret_cast LPARAM(payload));}
+        if(writePipe)CloseHandle(writePipe);CloseHandle(readPipe);PostMessageW(g_window,WM_CONSOLE_DONE,0,0);
+    }).detach();
+    SetWindowTextW(g_consoleInput,L"");
 }
 void setContent(const std::wstring& value) {
     SetWindowTextW(g_content, value.c_str());
@@ -100,15 +148,22 @@ std::wstring fileName() {
     return std::filesystem::path(g_path).filename().wstring();
 }
 void showPage(int page) {
-    static const wchar_t* names[] = {L"Обзор", L"Диагностика", L"Секции PE", L"Импорты", L"Функции"};
-    if (page < 0 || page >= 5) return;
+    static const wchar_t* names[] = {L"Обзор", L"Диагностика", L"Секции PE", L"Импорты", L"Функции", L"Builder AI", L"Консоль"};
+    if (page < 0 || page >= 7) return;
     g_page = names[page];
     g_activePage = page;
-    for (int i=0;i<5;++i) {
+    for (int i=0;i<7;++i) {
         SendMessageW(g_nav[i], BM_SETSTATE, i==page, TRUE);
         InvalidateRect(g_nav[i], nullptr, TRUE);
     }
     SetWindowTextW(g_title, g_page.c_str());
+    ShowWindow(g_content,page<5?SW_SHOW:SW_HIDE);
+    ShowWindow(g_builderText,page==5?SW_SHOW:SW_HIDE);
+    ShowWindow(g_consoleOutput,page==6?SW_SHOW:SW_HIDE);
+    ShowWindow(g_consoleInput,page==6?SW_SHOW:SW_HIDE);
+    ShowWindow(g_consoleRun,page==6?SW_SHOW:SW_HIDE);
+    if(page==5){SetWindowTextW(g_builderText,L"BUILDER AI — рабочая панель\r\n\r\nBuilder AI предназначен для работы с исходниками LULZ-AI: анализа структуры проекта, подготовки изменений, запуска сборки и тестов. Интеграция автономного агента и провайдера будет подключена следующим этапом.\r\n\r\nСейчас команды сборки и диагностики можно выполнять во вкладке Консоль.\r\n\r\nПример:\r\ncmake --build build-v090 --config Release\r\nctest --test-dir build-v090 -C Release --output-on-failure");return;}
+    if(page==6)return;
     if (!g_pe) {
         std::wostringstream out;
         if (g_path.empty()) {
@@ -217,6 +272,10 @@ void layout(HWND w) {
     MoveWindow(g_file, 260, 104, width-450, 34, TRUE);
     MoveWindow(GetDlgItem(w,ID_OPEN), width-170, 101, 140, 40, TRUE);
     MoveWindow(g_content, 260, 160, std::max(200,width-290), std::max(120,height-215), TRUE);
+    MoveWindow(g_builderText,260,160,std::max(200,width-290),std::max(120,height-215),TRUE);
+    MoveWindow(g_consoleOutput,260,160,std::max(200,width-290),std::max(120,height-275),TRUE);
+    MoveWindow(g_consoleInput,260,height-95,std::max(100,width-390),36,TRUE);
+    MoveWindow(g_consoleRun,width-120,height-95,90,36,TRUE);
     MoveWindow(g_status, 260, height-38, width-290, 24, TRUE);
     for(int i=0;i<5;++i) MoveWindow(g_nav[i], 20, 145+i*52, 210, 42, TRUE);
 }
@@ -232,10 +291,14 @@ LRESULT CALLBACK wndProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         makeControl(0,L"BUTTON",L"Открыть файл",WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,ID_OPEN,w);
         g_content=makeControl(WS_EX_CLIENTEDGE,L"EDIT",L"Откройте EXE или DLL, чтобы начать анализ.",WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|ES_WANTRETURN,ID_CONTENT,w);
         g_status=makeControl(0,L"STATIC",L"Готов к работе · файлы не запускаются",WS_CHILD|WS_VISIBLE,0,w);
-        const int ids[]={ID_NAV_SUMMARY,ID_NAV_DIAGNOSTICS,ID_NAV_SECTIONS,ID_NAV_IMPORTS,ID_NAV_FUNCTIONS};
-        const wchar_t* labels[]={L"Обзор",L"Диагностика",L"Секции PE",L"Импорты",L"Функции"};
-        for(int i=0;i<5;++i) g_nav[i]=makeControl(0,L"BUTTON",labels[i],WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,ids[i],w);
-        for(HWND h:{g_title,g_subtitle,g_file,g_content,g_status}) SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
+        const int ids[]={ID_NAV_SUMMARY,ID_NAV_DIAGNOSTICS,ID_NAV_SECTIONS,ID_NAV_IMPORTS,ID_NAV_FUNCTIONS,ID_NAV_BUILDER,ID_NAV_CONSOLE};
+        const wchar_t* labels[]={L"Обзор",L"Диагностика",L"Секции PE",L"Импорты",L"Функции",L"Builder AI",L"Консоль"};
+        for(int i=0;i<7;++i) g_nav[i]=makeControl(0,L"BUTTON",labels[i],WS_CHILD|WS_VISIBLE|BS_OWNERDRAW,ids[i],w);
+        g_builderText=makeControl(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|WS_VSCROLL,ID_BUILDER_TEXT,w);
+        g_consoleOutput=makeControl(WS_EX_CLIENTEDGE,L"EDIT",L"LULZ-AI встроенная командная консоль\r\nКоманды выполняются через cmd.exe в рабочем каталоге приложения.\r\n",WS_CHILD|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|WS_VSCROLL,ID_CONSOLE_OUTPUT,w);
+        g_consoleInput=makeControl(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|ES_AUTOHSCROLL,ID_CONSOLE_INPUT,w);
+        g_consoleRun=makeControl(0,L"BUTTON",L"Выполнить",WS_CHILD|BS_OWNERDRAW,ID_CONSOLE_RUN,w);
+        for(HWND h:{g_title,g_subtitle,g_file,g_content,g_status,g_builderText,g_consoleOutput,g_consoleInput,g_consoleRun}) SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
         SendMessageW(g_title,WM_SETFONT,reinterpret_cast<WPARAM>(g_fontBold),TRUE);
         for(HWND h:g_nav) SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
         SendMessageW(GetDlgItem(w,ID_OPEN),WM_SETFONT,reinterpret_cast<WPARAM>(g_font),TRUE);
@@ -255,15 +318,16 @@ LRESULT CALLBACK wndProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_DRAWITEM: {
         auto* dis=reinterpret_cast<DRAWITEMSTRUCT*>(lp);
-        if(dis && (dis->CtlID==ID_OPEN || (dis->CtlID>=ID_NAV_SUMMARY && dis->CtlID<=ID_NAV_FUNCTIONS))) {
+        if(dis && (dis->CtlID==ID_OPEN || dis->CtlID==ID_CONSOLE_RUN || (dis->CtlID>=ID_NAV_SUMMARY && dis->CtlID<=ID_NAV_CONSOLE))) {
             const bool open=dis->CtlID==ID_OPEN;
-            const int index=open?-1:static_cast<int>(dis->CtlID-ID_NAV_SUMMARY);
+            const bool run=dis->CtlID==ID_CONSOLE_RUN;
+            const int index=(open||run)?-1:static_cast<int>(dis->CtlID-ID_NAV_SUMMARY);
             const bool selected=!open && index==g_activePage;
-            const COLORREF fill=open?ACCENT:(selected?RGB(42,76,124):PANEL);
+            const COLORREF fill=(open||run)?ACCENT:(selected?RGB(42,76,124):PANEL);
             HBRUSH b=CreateSolidBrush(fill); FillRect(dis->hDC,&dis->rcItem,b); DeleteObject(b);
-            SetBkMode(dis->hDC,TRANSPARENT); SetTextColor(dis->hDC,open?RGB(255,255,255):(selected?RGB(255,255,255):TEXT));
+            SetBkMode(dis->hDC,TRANSPARENT); SetTextColor(dis->hDC,(open||run)?RGB(255,255,255):(selected?RGB(255,255,255):TEXT));
             RECT tr=dis->rcItem; InflateRect(&tr,-12,0);
-            DrawTextW(dis->hDC,open?L"Открыть файл":(index==0?L"Обзор":index==1?L"Диагностика":index==2?L"Секции PE":index==3?L"Импорты":L"Функции"),-1,&tr,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+            DrawTextW(dis->hDC,open?L"Открыть файл":run?L"Выполнить":(index==0?L"Обзор":index==1?L"Диагностика":index==2?L"Секции PE":index==3?L"Импорты":index==4?L"Функции":index==5?L"Builder AI":L"Консоль"),-1,&tr,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
             if(dis->itemState & ODS_FOCUS) DrawFocusRect(dis->hDC,&dis->rcItem);
             return TRUE;
         } break;
@@ -277,7 +341,12 @@ LRESULT CALLBACK wndProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
         case ID_NAV_SECTIONS: showPage(2); return 0;
         case ID_NAV_IMPORTS: showPage(3); return 0;
         case ID_NAV_FUNCTIONS: showPage(4); return 0;
+        case ID_NAV_BUILDER: showPage(5); return 0;
+        case ID_NAV_CONSOLE: showPage(6); return 0;
+        case ID_CONSOLE_RUN: runConsoleCommand(); return 0;
         } break;
+    case WM_CONSOLE_OUTPUT: {auto* p=reinterpret_cast<std::wstring*>(lp);if(p){appendConsole(*p);delete p;}return 0;}
+    case WM_CONSOLE_DONE: g_consoleRunning=false;if(g_consoleRun)EnableWindow(g_consoleRun,TRUE);appendConsole(L"\r\n[Команда завершена]\r\n");return 0;
     case WM_CTLCOLOREDIT: {
         HDC dc=reinterpret_cast<HDC>(wp); SetTextColor(dc,TEXT); SetBkColor(dc,PANEL);
         static HBRUSH brush=CreateSolidBrush(PANEL); return reinterpret_cast<LRESULT>(brush);
