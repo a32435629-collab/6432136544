@@ -9,6 +9,7 @@
 #include "lulz/formats/pe/PEParser.hpp"
 #include "lulz/formats/pe/PEExtendedParser.hpp"
 #include "lulz/formats/pe/UnwindInfo.hpp"
+#include "lulz/engine/GameEngineIntelligence.hpp"
 
 #include "lulz/hex/HexParser.hpp"
 #include "lulz/loaders/FileLoader.hpp"
