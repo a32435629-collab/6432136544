@@ -747,4 +747,21 @@ int main() {
     const auto payloads = detectEmbeddedPayloads(payloadImage);
     assert(payloads.size() == 3);
     assert(payloads[0].kind == "PE" && payloads[0].offset == 2);
+
+    auto expandedPayloadImage = BinaryImage::fromBytes({
+        0,0,0x89,'P','N','G',0x0d,0x0a,0x1a,0x0a,
+        '%','P','D','F','-','1','.','7',
+        'G','I','F','8','9','a',
+        0xfd,'7','z','X','Z',0x00
+    });
+    const auto expandedPayloads = detectEmbeddedPayloads(expandedPayloadImage);
+    assert(expandedPayloads.size() >= 4);
+    bool foundPng = false, foundPdf = false, foundGif = false, foundXz = false;
+    for (const auto& payload : expandedPayloads) {
+        foundPng |= payload.kind == "PNG";
+        foundPdf |= payload.kind == "PDF";
+        foundGif |= payload.kind == "GIF";
+        foundXz |= payload.kind == "XZ";
+    }
+    assert(foundPng && foundPdf && foundGif && foundXz);
 }
