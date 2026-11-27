@@ -9,6 +9,7 @@
 #include "lulz/formats/pe/PEParser.hpp"
 #include "lulz/formats/pe/PEExtendedParser.hpp"
 #include "lulz/formats/pe/UnwindInfo.hpp"
+#include "lulz/engine/GameEngineIntelligence.hpp"
 
 #include "lulz/hex/HexParser.hpp"
 #include "lulz/loaders/FileLoader.hpp"
@@ -50,7 +51,8 @@ static void usage() {
         << "  functions <file> find x64 functions\n"
         << "  unwind <file> [--json] parse x64 UNWIND_INFO\n"
         << "  analyze <file> [--json [output.json]] full analysis\n"
-        << "  ai <file> [--model checkpoint.lznn | --openai | --deepseek | --groq] static + AI analysis\n";
+        << "  ai <file> [--model checkpoint.lznn | --openai | --deepseek | --groq] static + AI analysis\\n"
+        << "  engine <file> [--json [output.json]] classify PE engine subsystems\\n";
 }
 
 // ==========================================
@@ -663,6 +665,65 @@ int main(int argc, char** argv) {
     // ======================================
     // FULL ANALYSIS
     // ======================================
+
+    if (cmd == "engine") {
+        auto pe = lulz::parsePE(bytes);
+        if (!pe) {
+            std::cerr << "Engine analysis requires a valid PE image: "
+                      << pe.error() << '\n';
+            return 2;
+        }
+
+        auto imports = lulz::parsePEImports(bytes, pe.value());
+        if (!imports) {
+            std::cerr << "Import parsing failed: " << imports.error() << '\n';
+            return 2;
+        }
+
+        std::vector<lulz::ImportSymbol> allImports = std::move(imports.value());
+        std::size_t delayCount = 0;
+        auto extended = lulz::parsePEExtended(bytes);
+        if (extended) {
+            delayCount = extended.value().delayImports.size();
+            allImports.insert(allImports.end(),
+                extended.value().delayImports.begin(),
+                extended.value().delayImports.end());
+        } else {
+            std::cerr << "[WARN] Delay imports unavailable: "
+                      << extended.error() << '\n';
+        }
+
+        const auto report = lulz::engine::analyzeEngineImports(allImports, delayCount);
+        const bool json = argc >= 4 && std::string(argv[3]) == "--json";
+        if (json) {
+            const std::string output = lulz::engine::engineReportToJson(report);
+            if (argc >= 5) {
+                if (!writeTextFile(argv[4], output)) {
+                    std::cerr << "Cannot write engine report: " << argv[4] << '\n';
+                    return 1;
+                }
+                std::cout << "Engine report written: " << argv[4] << '\n';
+            } else {
+                std::cout << output;
+            }
+            return 0;
+        }
+
+        std::cout << "GAME ENGINE INTELLIGENCE\n"
+                  << "Static imports: " << report.importCount
+                  << " | Delay imports: " << report.delayImportCount << '\n'
+                  << "Dynamic loading indicators: "
+                  << (report.supportsDynamicLoading ? "yes" : "not detected") << '\n';
+        for (const auto& signal : report.signals)
+            std::cout << "[" << signal.subsystem << "] " << signal.name
+                      << " | evidence: " << signal.evidence
+                      << " | confidence: " << signal.confidence << '\n';
+        if (report.signals.empty())
+            std::cout << "No known subsystem signatures found in the import tables.\n";
+        std::cout << "Note: imports are static evidence; dynamically loaded APIs and "
+                     "other process modules may not appear here.\n";
+        return 0;
+    }
 
     if (cmd == "analyze") {
         const bool jsonOutput = argc >= 4 && std::string(argv[3]) == "--json";
