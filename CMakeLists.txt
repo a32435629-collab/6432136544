@@ -56,7 +56,8 @@ add_library(lulz_core
     # Analysis and disassembly
     src/analysis/EntropyAnalyzer.cpp
     src/analysis/FunctionFinder.cpp
-    src/analysis/FunctionAnalysis.cpp\n    src/program/ProgramIntelligence.cpp
+    src/analysis/FunctionAnalysis.cpp
+    src/program/ProgramIntelligence.cpp
     src/asm/x86/X86Decoder.cpp
     src/asm/x86/X86Encoder.cpp
 
@@ -157,7 +158,9 @@ if(DLL_LULZ_BUILD_TESTS)
     add_executable(lulz_ai_tests tests/ai_test.cpp)
     target_link_libraries(lulz_ai_tests PRIVATE lulz_core)
 
-    add_executable(lulz_program_intelligence_tests tests/program_intelligence_test.cpp)\n    target_link_libraries(lulz_program_intelligence_tests PRIVATE lulz_core)\n    add_executable(lulz_binary_foundation_tests tests/binary_foundation_test.cpp)
+    add_executable(lulz_program_intelligence_tests tests/program_intelligence_test.cpp)
+    target_link_libraries(lulz_program_intelligence_tests PRIVATE lulz_core)
+    add_executable(lulz_binary_foundation_tests tests/binary_foundation_test.cpp)
     target_link_libraries(lulz_binary_foundation_tests PRIVATE lulz_core)
 
     add_executable(lulz_pe_windows_metadata_tests tests/pe_windows_metadata_test.cpp)
@@ -210,7 +213,8 @@ if(DLL_LULZ_BUILD_TESTS)
 
     add_test(NAME lulz_subsystem_tests COMMAND lulz_subsystem_tests)
     add_test(NAME lulz_ai_tests COMMAND lulz_ai_tests)
-    add_test(NAME lulz_program_intelligence_tests COMMAND lulz_program_intelligence_tests)\n    add_test(NAME lulz_binary_foundation_tests COMMAND lulz_binary_foundation_tests)
+    add_test(NAME lulz_program_intelligence_tests COMMAND lulz_program_intelligence_tests)
+    add_test(NAME lulz_binary_foundation_tests COMMAND lulz_binary_foundation_tests)
     add_test(NAME lulz_pe_windows_metadata_tests COMMAND lulz_pe_windows_metadata_tests)
     add_test(NAME lulz_macho_dyld_rebase_tests COMMAND lulz_macho_dyld_rebase_tests)
     add_test(NAME lulz_macho_dyld_bind_tests COMMAND lulz_macho_dyld_bind_tests)
